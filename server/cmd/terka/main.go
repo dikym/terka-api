@@ -18,6 +18,7 @@ import (
 
 	"github.com/dikym/terka-go/server/internal/config"
 	"github.com/dikym/terka-go/server/internal/server"
+	"github.com/dikym/terka-go/server/internal/web"
 )
 
 // Set at build time with -ldflags "-X main.version=<sha>".
@@ -95,7 +96,7 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 			Version: version,
 			Env:     cfg.Env,
 			Ping:    ping,
-			Static:  http.NotFoundHandler(),
+			Static:  web.Handler(web.Dist(), version),
 			Logger:  log,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
