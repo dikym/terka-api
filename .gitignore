@@ -1,0 +1,12 @@
+node_modules/
+web/build/
+web/.svelte-kit/
+server/bin/
+server/internal/web/dist/*
+!server/internal/web/dist/.gitkeep
+*.env
+.env*
+deploy/ansible/inventory.ini
+/spikes/
+/.superpowers/
+.DS_Store
