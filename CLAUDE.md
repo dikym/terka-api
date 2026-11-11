@@ -6,12 +6,10 @@
 
 Setelah Anda membuat, mengubah, atau menghapus kode, Anda **WAJIB** menjalankan perintah berikut untuk memastikan kualitas kode:
 
-1. **Server** (di `server/`):
+1. **Server** (dari akar repo):
     ```bash
-    gofmt -l .          # harus kosong
-    go vet ./...
-    golangci-lint run
-    go test ./...
+    make lint           # gofmt, go vet, golangci-lint (versinya dikunci di Makefile)
+    make test
     ```
 2. **Web** (di `web/`):
     ```bash
