@@ -18,8 +18,46 @@
     - { path: backups, mode: "0700" }
     - { path: infra, mode: "0750" }
     - { path: infra/certs, mode: "0700" }
+    # Read by the postgres user inside the container on the cluster's first start.
+    - { path: infra/postgres, mode: "0755" }
+    - { path: infra/postgres/init, mode: "0755" }
     - { path: staging, mode: "0750" }
     - { path: production, mode: "0750" }
+
+- name: Copy the shared infrastructure files
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../{{ item.src }}"
+    dest: "{{ terka_root }}/{{ item.dest }}"
+    owner: deploy
+    group: deploy
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: compose.infra.yaml, dest: infra/compose.infra.yaml, mode: "0640" }
+    - { src: Caddyfile, dest: infra/Caddyfile, mode: "0644" }
+    - { src: postgres/init/00-roles.sql, dest: infra/postgres/init/00-roles.sql, mode: "0644" }
+    - { src: compose.app.yaml, dest: compose.app.yaml, mode: "0640" }
+    - { src: scripts/create-env-db.sh, dest: bin/create-env-db.sh, mode: "0750" }
+
+- name: Write the Postgres superuser password
+  ansible.builtin.copy:
+    dest: "{{ terka_root }}/infra/.env"
+    content: "POSTGRES_PASSWORD={{ postgres_superuser_password }}\n"
+    owner: deploy
+    group: deploy
+    mode: "0600"
+  no_log: true
+
+- name: Write each environment's database passwords for create-env-db.sh
+  ansible.builtin.copy:
+    dest: "{{ terka_root }}/{{ item }}/db.env"
+    content: |
+      OWNER_PASSWORD={{ terka_db_passwords[item].owner }}
+      APP_PASSWORD={{ terka_db_passwords[item].app }}
+    owner: deploy
+    group: deploy
+    mode: "0600"
+  loop: "{{ terka_environments }}"
+  no_log: true
 
 - name: Write each environment's settings
   ansible.builtin.template:

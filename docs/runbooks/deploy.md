@@ -46,6 +46,21 @@ ssh -o PasswordAuthentication=yes -o PubkeyAuthentication=no deploy@<vps>  # har
 
 Harapan: swap 2G, Docker Compose terpasang, `.env` bermode `600`.
 
+## Postgres dan database lingkungan
+
+Setelah playbook jalan, sebagai `deploy` di VPS:
+
+```sh
+docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d --wait postgres
+set -a; . /opt/terka/staging/db.env; set +a
+/opt/terka/bin/create-env-db.sh staging
+```
+
+Skrip boleh dijalankan ulang; ia juga menyetel ulang kedua kata sandi ke nilai di `db.env`.
+
+Pemeriksaan: `docker port terka-infra-postgres-1` harus kosong (Postgres tidak punya port ke host),
+dan `docker stats --no-stream` menunjukkan batas 512 MiB pada Postgres.
+
 ### Garis dasar memori
 
 Catat keluaran `free -m` setelah jalan pertama di sini, sebagai pembanding saat tumpukan

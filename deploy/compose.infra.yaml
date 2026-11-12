@@ -1,0 +1,53 @@
+# Shared by every environment on the VPS: one Postgres cluster and the TLS front door.
+# Lives at /opt/terka/infra/; run with: docker compose -p terka-infra -f compose.infra.yaml up -d
+name: terka-infra
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    # POSTGRES_PASSWORD for the superuser; written by Ansible.
+    env_file: .env
+    # Sized for a 2 GB machine that also runs the app, Caddy and the observability stack.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=192MB
+      - -c
+      - effective_cache_size=512MB
+      - -c
+      - max_connections=40
+    shm_size: 128m
+    mem_limit: 512m
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # No ports: only containers on the terka network can reach it.
+    networks: [terka]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    mem_limit: 64m
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [terka]
+
+networks:
+  terka:
+    name: terka
+
+volumes:
+  pgdata:
+  caddy-data:
+  caddy-config:
