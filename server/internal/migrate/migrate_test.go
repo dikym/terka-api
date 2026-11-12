@@ -13,9 +13,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/dikym/terka-go/server/internal/dbtest"
-	"github.com/dikym/terka-go/server/internal/migrate"
-	"github.com/dikym/terka-go/server/migrations"
+	"github.com/dikym/terka-api/server/internal/dbtest"
+	"github.com/dikym/terka-api/server/internal/migrate"
+	"github.com/dikym/terka-api/server/migrations"
 )
 
 func connect(t *testing.T, url string) *pgx.Conn {

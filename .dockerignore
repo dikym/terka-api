@@ -2,12 +2,9 @@
 .superpowers
 spikes
 docs
-**/node_modules
 **/.DS_Store
-web/build
-web/.svelte-kit
 server/bin
-server/internal/web/dist
+server/tmp
 *.env
 .env*
 deploy/ansible

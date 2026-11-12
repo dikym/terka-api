@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dikym/terka-go/server/internal/server"
+	"github.com/dikym/terka-api/server/internal/server"
 )
 
 func deps(env string, ping func(context.Context) error) server.Deps {
@@ -18,7 +18,6 @@ func deps(env string, ping func(context.Context) error) server.Deps {
 		Version: "abc",
 		Env:     env,
 		Ping:    ping,
-		Static:  http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>static</html>")) }),
 		Logger:  slog.New(slog.DiscardHandler),
 	}
 }
@@ -78,10 +77,13 @@ func TestUnknownAPIPathIsJSON(t *testing.T) {
 	}
 }
 
-func TestOtherPathsGoToStatic(t *testing.T) {
-	rec := get(server.New(deps("local", up)), "/sesi")
-	if body(rec) != "<html>static</html>" {
-		t.Fatalf("body = %s", body(rec))
+func TestEveryOtherPathIsJSONNotFound(t *testing.T) {
+	for _, path := range []string{"/", "/sesi", "/api", "/sw.js"} {
+		rec := get(server.New(deps("local", up)), path)
+		if rec.Code != 404 || rec.Header().Get("Content-Type") != "application/json" ||
+			!strings.Contains(body(rec), `"code":"not_found"`) {
+			t.Errorf("%s: got %d %q %s", path, rec.Code, rec.Header().Get("Content-Type"), body(rec))
+		}
 	}
 }
 

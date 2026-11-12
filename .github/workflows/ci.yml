@@ -16,7 +16,6 @@ concurrency:
 
 env:
   GO_VERSION: "1.27.4"
-  BUN_VERSION: "1.4.4"
 
 jobs:
   server:
@@ -40,23 +39,6 @@ jobs:
       - name: Known vulnerabilities
         working-directory: server
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
-
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run build
 
   pgtap:
     runs-on: ubuntu-latest
@@ -86,7 +68,7 @@ jobs:
       - run: bash deploy/scripts/compose_test.sh
 
   image:
-    needs: [server, web, pgtap, scripts]
+    needs: [server, pgtap, scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

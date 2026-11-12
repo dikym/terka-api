@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dikym/terka-go/server/internal/httpx"
+	"github.com/dikym/terka-api/server/internal/httpx"
 )
 
 func serve(h httpx.Handler) *httptest.ResponseRecorder {

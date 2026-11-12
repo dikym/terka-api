@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dikym/terka-go/server/internal/config"
+	"github.com/dikym/terka-api/server/internal/config"
 )
 
 func env(pairs map[string]string) func(string) string {

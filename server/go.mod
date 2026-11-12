@@ -1,4 +1,4 @@
-module github.com/dikym/terka-go/server
+module github.com/dikym/terka-api/server
 
 go 1.27.4
 

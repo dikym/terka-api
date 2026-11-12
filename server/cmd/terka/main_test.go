@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dikym/terka-go/server/internal/dbtest"
+	"github.com/dikym/terka-api/server/internal/dbtest"
 )
 
 func TestMigrateCommandRequiresItsURL(t *testing.T) {

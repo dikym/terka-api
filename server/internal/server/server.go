@@ -7,14 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dikym/terka-go/server/internal/httpx"
+	"github.com/dikym/terka-api/server/internal/httpx"
 )
 
 type Deps struct {
 	Version string
 	Env     string
 	Ping    func(context.Context) error
-	Static  http.Handler
 	Logger  *slog.Logger
 }
 
@@ -34,10 +33,10 @@ func New(d Deps) http.Handler {
 		}
 		return httpx.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	}, d.Logger))
-	mux.Handle("/api/", httpx.Handle(func(http.ResponseWriter, *http.Request) error {
+	// The web build is served by its own container; anything else reaching the API is unknown.
+	mux.Handle("/", httpx.Handle(func(http.ResponseWriter, *http.Request) error {
 		return &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Message: "no such endpoint"}
 	}, d.Logger))
-	mux.Handle("/", d.Static)
 	return httpx.Recover(accessLog(securityHeaders(mux, d.Env), d.Logger), d.Logger)
 }
 

@@ -17,11 +17,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dikym/terka-go/server/internal/config"
-	"github.com/dikym/terka-go/server/internal/migrate"
-	"github.com/dikym/terka-go/server/internal/server"
-	"github.com/dikym/terka-go/server/internal/web"
-	"github.com/dikym/terka-go/server/migrations"
+	"github.com/dikym/terka-api/server/internal/config"
+	"github.com/dikym/terka-api/server/internal/migrate"
+	"github.com/dikym/terka-api/server/internal/server"
+	"github.com/dikym/terka-api/server/migrations"
 )
 
 // Set at build time with -ldflags "-X main.version=<sha>".
@@ -102,7 +101,6 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 			Version: version,
 			Env:     cfg.Env,
 			Ping:    ping,
-			Static:  web.Handler(web.Dist(), version),
 			Logger:  log,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
