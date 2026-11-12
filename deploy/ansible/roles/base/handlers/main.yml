@@ -1,14 +1,6 @@
 ---
-# Handlers run at the end of the play in the order written here; SSH reloads last, after the admin
-# key is in place.
-- name: Format the swap file
-  ansible.builtin.command: mkswap /swapfile
-  changed_when: true
-
-- name: Turn the swap on
-  ansible.builtin.command: swapon /swapfile
-  changed_when: true
-
+# Runs at the end of the play, after the admin key is in place, and also when a later task fails
+# (force_handlers in ansible.cfg), so a failed first run never leaves password login on.
 - name: Reload SSH
   ansible.builtin.service:
     name: ssh

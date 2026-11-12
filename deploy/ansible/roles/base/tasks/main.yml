@@ -62,14 +62,28 @@
   ansible.builtin.command: fallocate -l {{ swap_size_mb }}M /swapfile
   args:
     creates: /swapfile
-  notify:
-    - Format the swap file
-    - Turn the swap on
 
 - name: Restrict the swap file
   ansible.builtin.file:
     path: /swapfile
     mode: "0600"
+
+# Decided from the live state, not from "the file was just created": a run that died after
+# fallocate would otherwise leave an unformatted swap file that later runs never turn on.
+- name: List the active swap
+  ansible.builtin.command: swapon --show=NAME --noheadings
+  register: base_active_swap
+  changed_when: false
+
+- name: Format and turn on the swap file
+  when: "'/swapfile' not in base_active_swap.stdout_lines"
+  block:
+    - name: Format the swap file
+      ansible.builtin.command: mkswap /swapfile
+      changed_when: true
+    - name: Turn the swap on
+      ansible.builtin.command: swapon /swapfile
+      changed_when: true
 
 - name: Keep the swap after a reboot
   ansible.builtin.lineinfile:
