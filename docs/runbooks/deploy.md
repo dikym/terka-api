@@ -103,3 +103,47 @@ sudo -iu deploy /opt/terka/bin/deploy.sh staging <sha sebelumnya>
 ```
 
 SHA sebelumnya bisa dilihat di riwayat workflow `deploy` di GitHub atau dengan `git log` di repo.
+
+## Deploy otomatis
+
+Workflow `deploy` men-deploy ke staging setiap kali `ci` lulus pada push ke `main`. Produksi hanya
+lewat "Run workflow" dengan SHA, dan menunggu persetujuan.
+
+### Menyiapkan sekali
+
+1. Buat kunci khusus CI, tanpa passphrase, di laptop:
+   `ssh-keygen -t ed25519 -N '' -C terka-ci -f ~/terka-ci`
+2. Isi `deploy_ci_public_key` di `deploy/ansible/group_vars/all/main.yml` dengan isi
+   `~/terka-ci.pub`, lalu jalankan playbook lagi. Kunci ini hanya bisa menjalankan `deploy.sh`.
+3. Ambil sidik kunci host: `ssh-keyscan -t ed25519 <IP VPS>`.
+4. GitHub → Settings → Environments:
+   - `staging`: tanpa aturan perlindungan.
+   - `production`: Required reviewers = Anda sendiri.
+5. Di **kedua** environment, isi secret `DEPLOY_HOST` (IP VPS), `DEPLOY_SSH_KEY` (isi
+   `~/terka-ci`), dan `DEPLOY_KNOWN_HOSTS` (keluaran langkah 3).
+6. Hapus `~/terka-ci` dari laptop setelah tersimpan di GitHub.
+
+Periksa: setelah push ke `main` dan `ci` hijau, job `staging` di workflow `deploy` jalan sendiri dan
+`curl -s https://staging.terka.my.id/healthz` melaporkan SHA commit itu.
+
+## Latihan rollback
+
+Membuktikan bahwa versi yang rusak tidak pernah menggantikan versi yang sehat.
+
+1. Buat cabang sementara yang membuat `/readyz` selalu menjawab 503.
+2. Bangun image-nya untuk VPS (Mac membangun arm64 secara bawaan) dan dorong ke GHCR tanpa
+   menggabungkannya ke `main`:
+   ```sh
+   docker build --platform linux/amd64 -f deploy/Dockerfile --build-arg VERSION=$(git rev-parse HEAD) \
+     -t ghcr.io/dikym/terka-go:$(git rev-parse HEAD) .
+   docker push ghcr.io/dikym/terka-go:$(git rev-parse HEAD)
+   ```
+3. Di VPS: `sudo -iu deploy /opt/terka/bin/deploy.sh staging <sha rusak>`.
+4. Harapan: kode keluar `2`, dan `/healthz` staging tetap melaporkan SHA sebelumnya.
+5. Hapus cabang dan image-nya dari GHCR.
+
+### Hasil
+
+| Tanggal | SHA sehat | SHA rusak | Kode keluar | Lama staging tidak sehat |
+| --- | --- | --- | --- | --- |
+| (belum dilatih) | | | | |

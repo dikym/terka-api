@@ -1,0 +1,82 @@
+# Staging follows main: every ci run that passes on a push deploys its image.
+# Production is manual: run this workflow with a commit SHA; the production environment asks for
+# approval before the job starts.
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit SHA of an image already published by ci
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    env:
+      TARGET: staging
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      PUBLIC_URL: https://staging.terka.my.id
+    steps:
+      - &ssh-key
+        name: Install the deploy key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - &deploy
+        name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          [[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit SHA: $SHA"; exit 1; }
+          # The key's forced command on the server runs deploy.sh with these two words.
+          ssh -i ~/.ssh/deploy -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "deploy@$DEPLOY_HOST" "$TARGET $SHA"
+      - &verify
+        name: Check the public URL reports the new version
+        run: |
+          for _ in $(seq 1 30); do
+            got=$(curl -fsS "$PUBLIC_URL/healthz" | jq -r .version) || got=unreachable
+            [ "$got" = "$SHA" ] && exit 0
+            sleep 2
+          done
+          echo "$PUBLIC_URL reports $got, want $SHA"
+          exit 1
+
+  production:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      TARGET: production
+      SHA: ${{ inputs.sha }}
+      PUBLIC_URL: https://terka.my.id
+    steps:
+      - *ssh-key
+      - *deploy
+      - *verify
