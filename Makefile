@@ -6,7 +6,7 @@ DIST := server/internal/web/dist
 DEV_COMPOSE := docker compose -f deploy/compose.dev.yaml
 export TERKA_TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5433/postgres
 
-.PHONY: help db web build test lint
+.PHONY: help db web build test pgtap lint
 
 help:
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -24,6 +24,9 @@ build: ## build the server binary into server/bin/terka (run `make web` first to
 
 test: ## run the server tests (needs `make db`)
 	cd server && go test ./...
+
+pgtap: db ## run the database tests against a fresh schema
+	bash deploy/scripts/pgtap.sh
 
 lint: ## format check, vet and lint the server
 	cd server && test -z "$$(gofmt -l .)" && go vet ./... && $(GOLANGCI) run
