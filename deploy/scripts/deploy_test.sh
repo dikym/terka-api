@@ -26,7 +26,14 @@ inspect)
 compose)
 	case " $* " in
 	*" run "*) exit "${FAKE_MIGRATE:-0}" ;;
-	*" up "*) echo "$TERKA_IMAGE" >"$FAKE_DIR/running" && echo "up $TERKA_IMAGE" >>"$FAKE_DIR/calls" ;;
+	*" up "*)
+		# Compose may already have removed the old container when starting the new one fails.
+		if [ "$TERKA_IMAGE" = "$FAKE_NEW_IMAGE" ] && [ "${FAKE_UP_FAILS:-0}" = 1 ]; then
+			rm -f "$FAKE_DIR/running"
+			exit 1
+		fi
+		echo "$TERKA_IMAGE" >"$FAKE_DIR/running" && echo "up $TERKA_IMAGE" >>"$FAKE_DIR/calls"
+		;;
 	*" ps "*) echo container-id ;;
 	*" stop "*) rm -f "$FAKE_DIR/running" ;;
 	esac
@@ -90,6 +97,15 @@ if [ $code = 2 ] && calls | grep -q "^up $IMAGE:$OLD$" && [ "$(current)" = "$OLD
 new_world
 FAKE_NEW_HEALTH=starting deploy staging "$NEW"
 if [ $code = 3 ] && [ "$(calls | grep -c "^up ")" = 1 ] && calls | grep -q " stop " && [ ! -e "$work/root/staging/current" ]; then pass "a version that never turns healthy times out and stops on a first deploy"; else fail "a version that never turns healthy times out and stops on a first deploy"; fi
+
+new_world
+echo "$OLD" >"$work/root/staging/current"
+FAKE_UP_FAILS=1 deploy staging "$NEW"
+if [ $code = 2 ] && calls | grep -q "^up $IMAGE:$OLD$" && [ "$(current)" = "$OLD" ]; then pass "a version that fails to start is rolled back to the previous one"; else fail "a version that fails to start is rolled back to the previous one"; fi
+
+new_world
+FAKE_UP_FAILS=1 deploy staging "$NEW"
+if [ $code = 3 ] && [ ! -e "$work/root/staging/current" ]; then pass "a first version that fails to start reports a failed first deploy"; else fail "a first version that fails to start reports a failed first deploy"; fi
 
 new_world
 SSH_ORIGINAL_COMMAND="staging $NEW" deploy

@@ -5,8 +5,9 @@
 # Usage: deploy.sh <staging|production> <40-character commit SHA>
 # When run as the CI key's forced command, the two words come from SSH_ORIGINAL_COMMAND.
 #
-# Exit: 0 deployed · 1 pull or migration failed, app untouched · 2 rolled back to the previous
-# version · 3 first deploy failed, app stopped · 64 bad arguments.
+# Exit: 0 deployed · 1 pull or migration failed, app untouched · 2 the new version failed to start
+# or turn healthy and the previous one was started again · 3 the same on a first deploy, app
+# stopped · 64 bad arguments. The new version serves traffic until it is judged unhealthy.
 set -euo pipefail
 
 root=${TERKA_ROOT:-/opt/terka}
@@ -60,9 +61,9 @@ echo "deploying $image to $env_name (previous: ${previous:-none})"
 
 "$docker" pull "$image" || { echo "pull failed; nothing changed" >&2; exit 1; }
 app "$image" --profile tools run --rm migrate || { echo "migration failed; the app was not replaced" >&2; exit 1; }
-app "$image" up -d --no-deps app
-
-if healthy "$image"; then
+# A container that fails to start is handled like one that never turns healthy: compose may already
+# have removed the old one, so the previous version has to be started again either way.
+if app "$image" up -d --no-deps app && healthy "$image"; then
 	echo "$tag" >"$current_file"
 	echo "$env_name now runs $tag"
 	exit 0
@@ -76,5 +77,5 @@ if [ -n "$previous" ]; then
 fi
 
 echo "$tag did not turn healthy and there is no previous version; stopping it" >&2
-app "$image" stop app
+app "$image" stop app || true
 exit 3

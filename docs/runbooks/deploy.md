@@ -89,8 +89,8 @@ sudo -iu deploy /opt/terka/bin/deploy.sh staging <sha>
 ```
 
 Kode keluar: `0` berhasil, `1` tarik image atau migration gagal (aplikasi lama tetap jalan),
-`2` versi baru tidak sehat dan sudah dikembalikan ke versi sebelumnya, `3` deploy pertama gagal dan
-aplikasinya dihentikan, `64` argumen salah. Versi yang sedang jalan ada di
+`2` versi baru gagal dijalankan atau tidak sehat, dan versi sebelumnya sudah dijalankan lagi,
+`3` hal yang sama pada deploy pertama, dan aplikasinya dihentikan, `64` argumen salah. Versi yang sedang jalan ada di
 `/opt/terka/staging/current`.
 
 ## Rollback manual
