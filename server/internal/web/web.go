@@ -47,20 +47,20 @@ func Handler(files fs.FS, version string) http.Handler {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		urlPath := r.URL.Path
-		if len(urlPath) > 1 && strings.HasSuffix(urlPath, "/") {
-			target := strings.TrimRight(urlPath, "/")
-			if target == "" {
-				target = "/"
+		var name string
+		var file readSeekCloser
+		if urlPath := r.URL.Path; len(urlPath) > 1 && strings.HasSuffix(urlPath, "/") {
+			if target, ok := cleanTarget(files, urlPath); ok {
+				if r.URL.RawQuery != "" {
+					target += "?" + r.URL.RawQuery
+				}
+				http.Redirect(w, r, target, http.StatusPermanentRedirect)
+				return
 			}
-			if r.URL.RawQuery != "" {
-				target += "?" + r.URL.RawQuery
-			}
-			http.Redirect(w, r, target, http.StatusPermanentRedirect)
-			return
+		} else {
+			name, file = find(files, strings.TrimPrefix(urlPath, "/"))
 		}
 
-		name, file := find(files, strings.TrimPrefix(urlPath, "/"))
 		status := http.StatusOK
 		if file == nil {
 			name, file = open(files, "404.html")
@@ -95,6 +95,21 @@ func Handler(files fs.FS, version string) http.Handler {
 		// Embedded files have no modification time, so freshness rides on the ETag alone.
 		http.ServeContent(w, r, name, time.Time{}, file)
 	})
+}
+
+// cleanTarget returns the slash-free path to redirect to, only when it names a file that exists.
+// Echoing the request path back would let //host/ or /\host/ send the browser to another site.
+func cleanTarget(files fs.FS, urlPath string) (string, bool) {
+	clean := strings.TrimPrefix(strings.TrimRight(urlPath, "/"), "/")
+	if clean == "" || strings.Contains(clean, `\`) {
+		return "", false
+	}
+	_, file := find(files, clean)
+	if file == nil {
+		return "", false
+	}
+	_ = file.Close()
+	return "/" + clean, true
 }
 
 func find(files fs.FS, name string) (string, readSeekCloser) {

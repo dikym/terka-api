@@ -94,6 +94,15 @@ func TestTrailingSlashRedirectsToTheCleanPath(t *testing.T) {
 	}
 }
 
+func TestTrailingSlashNeverRedirectsOffSite(t *testing.T) {
+	for _, target := range []string{"//evil.example/", "/\\evil.example/", "/\\\\evil.example/", "///evil.example//", "/nope/"} {
+		rec := request("GET", target, nil)
+		if rec.Code != 404 || rec.Header().Get("Location") != "" {
+			t.Errorf("%q: got %d Location %q, want 404 and no redirect", target, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+}
+
 func TestRevalidatedFilesCarryTheVersionAsETag(t *testing.T) {
 	rec := request("GET", "/plates.json", nil)
 	if got := rec.Header().Get("ETag"); got != `"v1"` {
