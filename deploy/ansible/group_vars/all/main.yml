@@ -1,0 +1,23 @@
+---
+# The owner's login: key only, passwordless sudo.
+admin_user: terka-admin
+admin_ssh_public_key: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub') }}"
+
+# The CI deploy key's public half. Empty until the key is created; the deploy user then has no key.
+deploy_ci_public_key: ""
+
+terka_root: /opt/terka
+terka_environments:
+  - staging
+
+swap_size_mb: 2048
+
+ghcr_user: "{{ vault_ghcr_user }}"
+ghcr_token: "{{ vault_ghcr_token }}"
+
+# Hex passwords only: they go into connection URLs and .env files unquoted.
+postgres_superuser_password: "{{ vault_postgres_superuser_password }}"
+terka_db_passwords:
+  staging:
+    owner: "{{ vault_staging_owner_password }}"
+    app: "{{ vault_staging_app_password }}"

@@ -1,0 +1,58 @@
+---
+- name: Let the deploy user run Docker
+  ansible.builtin.user:
+    name: deploy
+    groups: docker
+    append: true
+
+- name: Create the Terka directories
+  ansible.builtin.file:
+    path: "{{ terka_root }}/{{ item.path }}"
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "", mode: "0750" }
+    - { path: bin, mode: "0750" }
+    - { path: backups, mode: "0700" }
+    - { path: infra, mode: "0750" }
+    - { path: infra/certs, mode: "0700" }
+    - { path: staging, mode: "0750" }
+    - { path: production, mode: "0750" }
+
+- name: Write each environment's settings
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ terka_root }}/{{ item }}/.env"
+    owner: deploy
+    group: deploy
+    mode: "0600"
+  loop: "{{ terka_environments }}"
+  no_log: true
+
+- name: Create the deploy user's Docker config directory
+  ansible.builtin.file:
+    path: /home/deploy/.docker
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "0700"
+
+- name: Log the deploy user in to GHCR for pulls
+  ansible.builtin.copy:
+    dest: /home/deploy/.docker/config.json
+    content: "{{ {'auths': {'ghcr.io': {'auth': (ghcr_user ~ ':' ~ ghcr_token) | b64encode}}} | to_nice_json }}\n"
+    owner: deploy
+    group: deploy
+    mode: "0600"
+  no_log: true
+
+# The CI key can run the deploy script and nothing else: no shell, no forwarding.
+- name: Install the CI deploy key
+  when: deploy_ci_public_key | length > 0
+  ansible.posix.authorized_key:
+    user: deploy
+    key: "{{ deploy_ci_public_key }}"
+    key_options: 'restrict,command="{{ terka_root }}/bin/deploy.sh"'
+    exclusive: true
