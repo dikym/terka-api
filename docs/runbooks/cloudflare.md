@@ -68,6 +68,11 @@ dipercaya karena aturan ini.
 
 Rentang Cloudflare jarang berubah; periksa ulang halaman itu setiap beberapa bulan.
 
+**IPv6.** Caddy hanya dipublikasikan di `0.0.0.0:443`, jadi tidak ada pendengar IPv6 untuk
+dilewati. Kalau instance punya alamat IPv6 publik (`ip -6 addr show scope global` tidak kosong),
+pastikan tetap tidak ada aturan 443 untuk `::/0` di firewall konsol, dan jangan buat record `AAAA`
+untuk staging.
+
 ## 7. Pemeriksaan dari luar
 
 ```sh
@@ -77,5 +82,7 @@ curl -sI https://staging.terka.my.id/ | grep -i '^server:'                     #
 curl -sI https://staging.terka.my.id/ | grep -i x-robots-tag                   # noindex
 curl -s -m 10 --resolve staging.terka.my.id:443:<IP VPS> https://staging.terka.my.id/healthz
                                                                                # harus habis waktu
+curl -s -m 10 -6 --resolve 'staging.terka.my.id:443:[<IPv6 VPS>]' https://staging.terka.my.id/healthz
+                                                                               # kalau ada IPv6: harus gagal
 curl -sI https://terka.my.id/ | grep -i '^server:'                             # masih Vercel
 ```

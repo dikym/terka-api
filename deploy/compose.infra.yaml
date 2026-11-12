@@ -34,7 +34,9 @@ services:
     image: caddy:2
     restart: unless-stopped
     ports:
-      - "443:443"
+      # IPv4 only: Cloudflare reaches the origin through the A record, and the console firewall
+      # rules that admit only Cloudflare are IPv4 rules. A [::]:443 listener would bypass them.
+      - "0.0.0.0:443:443"
     mem_limit: 64m
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
