@@ -10,7 +10,7 @@ COPY web/ ./
 RUN bun run build
 
 # Cross-compiled on the build machine instead of emulating the target, which is much faster.
-FROM --platform=$BUILDPLATFORM golang:1.27.3 AS server
+FROM --platform=$BUILDPLATFORM golang:1.27.4 AS server
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
