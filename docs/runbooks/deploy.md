@@ -48,9 +48,10 @@ Harapan: swap 2G, Docker Compose terpasang, `.env` bermode `600`.
 
 ## Postgres dan database lingkungan
 
-Setelah playbook jalan, sebagai `deploy` di VPS:
+Setelah playbook jalan, masuk sebagai `terka-admin` lalu pindah ke pengguna `deploy`:
 
 ```sh
+sudo -iu deploy
 docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d --wait postgres
 set -a; . /opt/terka/staging/db.env; set +a
 /opt/terka/bin/create-env-db.sh staging
@@ -69,3 +70,36 @@ observability dipasang.
 ```
 (belum diisi)
 ```
+
+## Caddy
+
+Setelah sertifikat asal terpasang (`docs/runbooks/cloudflare.md` langkah 4), sebagai `deploy`:
+
+```sh
+docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d caddy
+```
+
+## Deploy manual
+
+Image harus sudah ada di GHCR dengan tag SHA commit 40 karakter (dibuat CI pada push ke `main`).
+Sebagai `terka-admin` di VPS:
+
+```sh
+sudo -iu deploy /opt/terka/bin/deploy.sh staging <sha>
+```
+
+Kode keluar: `0` berhasil, `1` tarik image atau migration gagal (aplikasi lama tetap jalan),
+`2` versi baru tidak sehat dan sudah dikembalikan ke versi sebelumnya, `3` deploy pertama gagal dan
+aplikasinya dihentikan, `64` argumen salah. Versi yang sedang jalan ada di
+`/opt/terka/staging/current`.
+
+## Rollback manual
+
+Deploy ulang SHA sebelumnya dengan perintah yang sama. Ini aman karena migration hanya menambah;
+image lama mengabaikan versi migration yang tidak dikenalnya. Migration tidak pernah dibatalkan.
+
+```sh
+sudo -iu deploy /opt/terka/bin/deploy.sh staging <sha sebelumnya>
+```
+
+SHA sebelumnya bisa dilihat di riwayat workflow `deploy` di GitHub atau dengan `git log` di repo.
