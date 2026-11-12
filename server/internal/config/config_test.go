@@ -32,19 +32,17 @@ func TestLoadDefaultsAddr(t *testing.T) {
 
 func TestLoadReadsEveryVariable(t *testing.T) {
 	cfg, err := config.Load(env(map[string]string{
-		"TERKA_ENV":                  "staging",
-		"TERKA_ADDR":                 "127.0.0.1:9000",
-		"TERKA_DATABASE_URL":         "postgres://app@db/terka",
-		"TERKA_MIGRATE_DATABASE_URL": "postgres://owner@db/terka",
+		"TERKA_ENV":          "staging",
+		"TERKA_ADDR":         "127.0.0.1:9000",
+		"TERKA_DATABASE_URL": "postgres://app@db/terka",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := config.Config{
-		Env:                "staging",
-		Addr:               "127.0.0.1:9000",
-		DatabaseURL:        "postgres://app@db/terka",
-		MigrateDatabaseURL: "postgres://owner@db/terka",
+		Env:         "staging",
+		Addr:        "127.0.0.1:9000",
+		DatabaseURL: "postgres://app@db/terka",
 	}
 	if cfg != want {
 		t.Fatalf("cfg = %+v, want %+v", cfg, want)

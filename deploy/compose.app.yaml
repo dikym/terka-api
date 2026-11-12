@@ -18,7 +18,8 @@ services:
   migrate:
     image: ${TERKA_IMAGE}
     command: ["migrate"]
-    env_file: ${TERKA_ENV_NAME}/.env
+    # Only the schema owner's URL, kept apart from the app: that role bypasses row level security.
+    env_file: ${TERKA_ENV_NAME}/migrate.env
     read_only: true
     profiles: [tools]
     networks: [terka]

@@ -70,6 +70,17 @@
   loop: "{{ terka_environments }}"
   no_log: true
 
+# Read only by the migrate service; the serving app never sees the schema owner's login.
+- name: Write each environment's migration settings
+  ansible.builtin.template:
+    src: migrate.env.j2
+    dest: "{{ terka_root }}/{{ item }}/migrate.env"
+    owner: deploy
+    group: deploy
+    mode: "0600"
+  loop: "{{ terka_environments }}"
+  no_log: true
+
 - name: Create the deploy user's Docker config directory
   ansible.builtin.file:
     path: /home/deploy/.docker
