@@ -14,11 +14,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dikym/terka-go/server/internal/config"
+	"github.com/dikym/terka-go/server/internal/migrate"
 	"github.com/dikym/terka-go/server/internal/server"
 	"github.com/dikym/terka-go/server/internal/web"
+	"github.com/dikym/terka-go/server/migrations"
 )
 
 // Set at build time with -ldflags "-X main.version=<sha>".
@@ -28,6 +31,7 @@ const usage = `usage: terka <command>
 
 commands:
   serve     run the HTTP server
+  migrate   apply the embedded schema migrations
   health    exit 0 when the local server is ready
   version   print the build version
 `
@@ -51,6 +55,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	switch args[0] {
 	case "serve":
 		return serve(ctx, getenv, stderr)
+	case "migrate":
+		return migrateSchema(ctx, getenv, stdout, stderr)
 	case "health":
 		return health(ctx, getenv)
 	case "version":
@@ -118,6 +124,32 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 	if err := srv.Shutdown(shutdown); err != nil {
 		log.Error("shutdown did not finish cleanly", "error", err)
 		return 1
+	}
+	return 0
+}
+
+func migrateSchema(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
+	url := getenv("TERKA_MIGRATE_DATABASE_URL")
+	if url == "" {
+		tell(stderr, "TERKA_MIGRATE_DATABASE_URL is required\n")
+		return 1
+	}
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		tell(stderr, "connect: %v\n", err)
+		return 1
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	applied, err := migrate.Apply(ctx, conn, migrations.Files)
+	for _, version := range applied {
+		tell(stdout, "applied %s\n", version)
+	}
+	if err != nil {
+		tell(stderr, "migrate: %v\n", err)
+		return 1
+	}
+	if len(applied) == 0 {
+		tell(stdout, "schema is up to date\n")
 	}
 	return 0
 }

@@ -12,7 +12,36 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dikym/terka-go/server/internal/dbtest"
 )
+
+func TestMigrateCommandRequiresItsURL(t *testing.T) {
+	var stderr bytes.Buffer
+	code := run(context.Background(), []string{"migrate"}, env(nil), io.Discard, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "TERKA_MIGRATE_DATABASE_URL") {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestMigrateCommandAppliesTheEmbeddedSchemaOnce(t *testing.T) {
+	db := dbtest.New(t)
+	vars := env(map[string]string{"TERKA_MIGRATE_DATABASE_URL": db.OwnerURL})
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"migrate"}, vars, &stdout, &stderr); code != 0 {
+		t.Fatalf("first run: code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "applied 00000000000000_platform") {
+		t.Fatalf("first run did not report the platform migration: %s", stdout.String())
+	}
+	stdout.Reset()
+	if code := run(context.Background(), []string{"migrate"}, vars, &stdout, &stderr); code != 0 {
+		t.Fatalf("second run: code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "applied ") {
+		t.Fatalf("second run applied something again: %s", stdout.String())
+	}
+}
 
 type syncBuffer struct {
 	mu  sync.Mutex
