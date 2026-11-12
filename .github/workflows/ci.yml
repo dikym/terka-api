@@ -65,8 +65,16 @@ jobs:
           cache-dependency-path: server/go.sum
       - run: make pgtap
 
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck deploy/scripts/*.sh
+      - run: bash deploy/scripts/deploy_test.sh
+
   image:
-    needs: [server, web, pgtap]
+    needs: [server, web, pgtap, scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

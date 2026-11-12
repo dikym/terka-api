@@ -37,6 +37,7 @@
     - { src: postgres/init/00-roles.sql, dest: infra/postgres/init/00-roles.sql, mode: "0644" }
     - { src: compose.app.yaml, dest: compose.app.yaml, mode: "0640" }
     - { src: scripts/create-env-db.sh, dest: bin/create-env-db.sh, mode: "0750" }
+    - { src: scripts/deploy.sh, dest: bin/deploy.sh, mode: "0750" }
 
 - name: Write the Postgres superuser password
   ansible.builtin.copy:
