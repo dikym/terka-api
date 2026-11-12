@@ -1,0 +1,13 @@
+.git
+.superpowers
+spikes
+docs
+**/node_modules
+**/.DS_Store
+web/build
+web/.svelte-kit
+server/bin
+server/internal/web/dist
+*.env
+.env*
+deploy/ansible

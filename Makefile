@@ -6,7 +6,7 @@ DIST := server/internal/web/dist
 DEV_COMPOSE := docker compose -f deploy/compose.dev.yaml
 export TERKA_TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5433/postgres
 
-.PHONY: help db web build test pgtap lint
+.PHONY: help db web build image test pgtap lint
 
 help:
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -21,6 +21,9 @@ web: ## build the client and copy it to where the server embeds it
 
 build: ## build the server binary into server/bin/terka (run `make web` first to embed the client)
 	cd server && CGO_ENABLED=0 go build -ldflags "-X main.version=$(VERSION)" -o bin/terka ./cmd/terka
+
+image: ## build the container image as terka-go:$(VERSION)
+	docker build -f deploy/Dockerfile --build-arg VERSION=$(VERSION) -t terka-go:$(VERSION) .
 
 test: ## run the server tests (needs `make db`)
 	cd server && go test ./...
