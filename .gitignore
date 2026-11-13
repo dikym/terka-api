@@ -7,3 +7,4 @@ deploy/ansible/inventory.ini
 /.superpowers/
 .DS_Store
 .idea/
+/.edge-test.*/

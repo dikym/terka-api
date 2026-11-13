@@ -34,6 +34,7 @@
   loop:
     - { src: compose.infra.yaml, dest: infra/compose.infra.yaml, mode: "0640" }
     - { src: Caddyfile, dest: infra/Caddyfile, mode: "0644" }
+    - { src: Caddyfile.routes, dest: infra/Caddyfile.routes, mode: "0644" }
     - { src: postgres/init/00-roles.sql, dest: infra/postgres/init/00-roles.sql, mode: "0644" }
     - { src: compose.api.yaml, dest: compose.api.yaml, mode: "0640" }
     - { src: compose.web.yaml, dest: compose.web.yaml, mode: "0640" }
@@ -99,11 +100,23 @@
     mode: "0600"
   no_log: true
 
-# The CI key can run the deploy script and nothing else: no shell, no forwarding.
-- name: Install the CI deploy key
-  when: deploy_ci_public_key | length > 0
-  ansible.posix.authorized_key:
-    user: deploy
-    key: "{{ deploy_ci_public_key }}"
-    key_options: 'restrict,command="{{ terka_root }}/bin/deploy.sh"'
-    exclusive: true
+- name: Create the deploy user's SSH directory
+  ansible.builtin.file:
+    path: /home/deploy/.ssh
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "0700"
+
+# One key per repository. Each can run the deploy script for its own service and nothing else: no
+# shell, no forwarding, and no way to name the other service. Written whole, so a removed key goes.
+- name: Install the CI deploy keys
+  ansible.builtin.copy:
+    dest: /home/deploy/.ssh/authorized_keys
+    content: |
+      {% for service, key in deploy_ci_public_keys.items() if key | length > 0 %}
+      restrict,command="{{ terka_root }}/bin/deploy.sh {{ service }}" {{ key }}
+      {% endfor %}
+    owner: deploy
+    group: deploy
+    mode: "0600"

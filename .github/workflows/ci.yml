@@ -66,6 +66,7 @@ jobs:
         run: "! grep -hE '^\\s*(- )?uses:' .github/workflows/*.yml | grep -vE '@[0-9a-f]{40}( |$)'"
       - run: bash deploy/scripts/deploy_test.sh
       - run: bash deploy/scripts/compose_test.sh
+      - run: bash deploy/scripts/edge_test.sh
 
   image:
     needs: [server, pgtap, scripts]

@@ -1,7 +1,9 @@
+import /etc/caddy/Caddyfile.routes
+
 # Cloudflare connects over 443 with Full (strict) TLS and checks this Origin CA certificate.
 staging.terka.my.id {
 	tls /certs/origin.pem /certs/origin-key.pem
 	# Origin-to-Cloudflare traffic counts against the VPS transfer quota.
 	encode zstd gzip
-	reverse_proxy terka-staging:8080
+	import routes terka-staging
 }

@@ -40,6 +40,7 @@ services:
     mem_limit: 64m
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.routes:/etc/caddy/Caddyfile.routes:ro
       - ./certs:/certs:ro
       - caddy-data:/data
       - caddy-config:/config

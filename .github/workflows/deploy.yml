@@ -50,7 +50,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
           [[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit SHA: $SHA"; exit 1; }
-          # The key's forced command on the server runs deploy.sh with these two words.
+          # The key's forced command on the server is "deploy.sh api"; these two words complete it.
           ssh -i ~/.ssh/deploy -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "deploy@$DEPLOY_HOST" "$TARGET $SHA"
       - &verify
