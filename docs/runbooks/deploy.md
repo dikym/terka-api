@@ -73,11 +73,24 @@ observability dipasang.
 
 ## Caddy
 
-Setelah sertifikat asal terpasang (`docs/runbooks/cloudflare.md` langkah 4), sebagai `deploy`:
+Caddy tepi memakai image `ghcr.io/dikym/terka-edge:<sha>` yang dibangun CI `terka-api` (job
+`edge`). Image ini berisi Caddy yang dibangun ulang dengan modul yang sudah ditambal, dan build-nya
+gagal kalau masih ada celah yang diketahui.
+
+1. Isi `terka_edge_image` di `deploy/ansible/group_vars/all/main.yml` dengan tag dari push terakhir
+   ke `main`, lalu jalankan playbook lagi (tag masuk ke `/opt/terka/infra/.env`).
+2. Setelah sertifikat asal terpasang (`docs/runbooks/cloudflare.md` langkah 4), sebagai `deploy`:
 
 ```sh
 docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d caddy
 ```
+
+Memperbarui Caddy tepi: ganti `terka_edge_image`, jalankan playbook, lalu perintah yang sama.
+Selama Caddy dimulai ulang, situs tidak bisa diakses beberapa detik.
+
+Tambalan modul ada di `deploy/caddy/Dockerfile` (dan salinan identiknya di `terka-web/Dockerfile`).
+Setiap kali Caddy merilis versi baru, naikkan versinya di kedua berkas dan hapus `--replace` yang
+sudah tercakup rilis itu.
 
 ## Urutan rilis
 

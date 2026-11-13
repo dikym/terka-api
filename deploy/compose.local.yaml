@@ -65,7 +65,8 @@ services:
         aliases: [terka-local-web]
 
   caddy:
-    image: caddy:2.11.9-alpine
+    build: ./caddy
+    image: terka-edge:local
     ports:
       - "127.0.0.1:${TERKA_STACK_PORT:-8800}:8800"
     volumes:
