@@ -76,7 +76,8 @@ untuk staging.
 ## 7. Pemeriksaan dari luar
 
 ```sh
-curl -s https://staging.terka.my.id/healthz                                    # {"status":"ok","version":"<sha>"}
+curl -s https://staging.terka.my.id/healthz                                    # API: {"status":"ok","version":"<sha api>"}
+curl -s https://staging.terka.my.id/_app/version.json                          # UI: {"version":"<sha web>"}
 curl -s -o /dev/null -w '%{http_code}\n' https://staging.terka.my.id/readyz     # 200
 curl -sI https://staging.terka.my.id/ | grep -i '^server:'                     # cloudflare
 curl -sI https://staging.terka.my.id/ | grep -i x-robots-tag                   # noindex

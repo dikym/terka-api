@@ -94,8 +94,10 @@ Browser (PWA SvelteKit, statis)
         │
    Cloudflare (proxy, cache aset, TLS tepi)
         │  443, hanya dari rentang IP Cloudflare
-   VPS ── Caddy ── terka (satu binary Go)
-                    ├─ berkas statis hasil build Svelte (di-embed)
+   VPS ── Caddy tepi ─┬─ terka-web (Caddy + build Svelte, repo terka-web)
+                      │     semua path selain di bawah
+                      └─ terka (binary Go, repo terka-api)
+                    ├─ /healthz, /readyz
                     ├─ /api/auth/*   Google OAuth, kode email, sesi cookie
                     ├─ /api/sync/*   kirim, tarik, SSE
                     ├─ /api/account/* reset, hapus akun, perangkat
@@ -110,17 +112,16 @@ Server tidak menghitung jadwal dan tidak menilai jawaban. Alasan keamanannya sam
 
 ### 6.2 Repo Baru
 
-Satu repo berisi seluruh sistem baru:
+Sejak 2026-11-13 sistem baru terbagi dua repo (spec `2026-11-13-split-web-and-api-design.md`):
 
 ```
-web/      SvelteKit: src/core, src/lib, src/components, src/routes, tests, scripts, data
-server/   modul Go: cmd/terka, internal/..., migrations/, queries/
-deploy/   Dockerfile, compose, Caddyfile, Ansible, konfigurasi observability
-docs/     dokumen produk yang disalin, runbook
+terka-api/   server/ (modul Go: cmd/terka, internal/..., migrations/, queries/),
+             deploy/ (Dockerfile, compose, Caddy tepi, Ansible, observability), docs/
+terka-web/   SvelteKit: src/core, src/lib, src/components, src/routes, tests, scripts, data
 ```
 
 - Repo dimulai kosong; berkas disalin dari repo lama. Riwayat git repo lama tetap di repo lama.
-- Di dalam `web/`, path `src/core` dan `src/lib` serta alias impor `@/` dipertahankan persis. Dengan begitu perubahan bisa dipindah antar-repo sebagai patch (`git apply --directory=web`).
+- Di `terka-web`, path `src/core` dan `src/lib` serta alias impor `@/` dipertahankan persis. Dengan begitu perubahan bisa dipindah antar-repo sebagai patch (`git apply`).
 - Dokumen di `docs/` disalin. TRD ditulis ulang untuk arsitektur baru sebagai bagian dari pekerjaan; SRD, PRD, Microcopy, dan Tests tetap berlaku apa adanya.
 
 ### 6.3 Klien
@@ -146,7 +147,7 @@ Satu binary `terka` dengan subperintah:
 
 | Subperintah | Kerja |
 | --- | --- |
-| `serve` | HTTP: berkas statis, API, SSE, tugas latar |
+| `serve` | HTTP: API, SSE, tugas latar |
 | `migrate` | menerapkan migration SQL yang di-embed |
 | `mirror` | mirror penuh ke Supabase (tahap satu) |
 
@@ -155,7 +156,7 @@ Aturan:
 - Router `net/http` bawaan dengan pola metode + path. Satu tipe handler yang mengembalikan `error` dan satu penulis JSON; tidak ada framework.
 - Akses data lewat pgx. Query untuk auth, akun, dan tugas latar ditulis sebagai SQL dan dibangkitkan dengan sqlc.
 - Pustaka yang wajib dipakai, bukan ditulis sendiri: `golang.org/x/oauth2` dan `github.com/coreos/go-oidc/v3` untuk Google, SDK OpenTelemetry resmi untuk observability.
-- Berkas statis di-embed ke binary. Penyaji berkas menangani URL bersih (`/sesi` → `sesi.html`), `404.html`, `Cache-Control: no-cache` untuk HTML dan `sw.js`, dan cache lama untuk aset ber-hash.
+- Binary tidak menyajikan berkas statis. Build Svelte disajikan container `terka-web` (Caddy) di belakang Caddy tepi, dengan URL bersih, `404.html`, `no-cache` untuk HTML dan `sw.js`, dan cache satu tahun untuk aset ber-hash; rute selain `/api/*`, `/healthz`, dan `/readyz` di API menjawab 404 JSON.
 - Batas waktu baca dan tulis dipasang di server HTTP. Saat berhenti, server menutup koneksi SSE dengan rapi dan menunggu request yang berjalan.
 - `/healthz` menjawab tanpa menyentuh database; `/readyz` memeriksa koneksi database.
 - Pembersihan `usage_daily` yang sekarang dijalankan `pg_cron` menjadi tugas terjadwal di dalam `serve`, memanggil `public.cleanup_usage_daily()` sekali sehari.
@@ -239,7 +240,7 @@ Semua aturan TRD bagian 9 tetap berlaku. Tambahan dan perubahan:
 Bagian ini sengaja lebih lengkap dari kebutuhan Terka, karena deployment adalah tujuan belajar.
 
 - **Lingkungan:** lokal (Docker Compose dengan Postgres dan penangkap email), staging (`staging.terka.my.id`), dan produksi (`terka.my.id`). Staging dan produksi berjalan di VPS yang sama, dengan container aplikasi terpisah dan database terpisah di satu instance Postgres.
-- **Image:** satu Dockerfile bertingkat: build web, build Go dengan hasil web di-embed, lalu image akhir minimal. Image dibangun di GitHub Actions dan disimpan di GHCR dengan tag SHA commit. Tidak pernah dibangun di VPS.
+- **Image:** dua image, masing-masing dari repo-nya: `terka-api` (binary Go dalam image minimal) dan `terka-web` (build Svelte dalam Caddy). Keduanya dibangun di GitHub Actions dan disimpan di GHCR dengan tag SHA commit, dan di-deploy terpisah lewat `deploy.sh <api|web>`. Tidak pernah dibangun di VPS.
 - **CI:** lint dan cek tipe (Go dan web), `go test` terhadap Postgres sungguhan, pgTAP, `bun test`, Playwright (Chromium dan WebKit) terhadap binary Go, pemindaian kerentanan dependensi dan image.
 - **CD:** `main` yang lolos CI ter-deploy ke staging otomatis. Produksi di-deploy dengan persetujuan manual. Langkahnya: tarik image, jalankan `terka migrate` sebagai langkah tersendiri, ganti container, tunggu `/readyz`, dan kembali ke image sebelumnya kalau gagal.
 - **VPS:** disiapkan dengan playbook Ansible yang bisa diulang: pengguna dan SSH hanya-kunci, firewall, swap 2 GB, Docker, pembaruan keamanan otomatis, direktori dan berkas compose.
@@ -336,6 +337,8 @@ Rewrite dianggap setara dengan repo lama ketika semua ini hijau:
 | `supabase/checks` (auth, push, pull, sync, removal, signal, ops) | ditulis ulang sebagai tes Go terhadap server sungguhan |
 | `supabase/checks` (docs, enums) | dipindah; tetap membandingkan skema dengan kode dan dokumen |
 
+Tes klien dan E2E tinggal di `terka-web`; tes server, pgTAP, dan tes skrip deploy di `terka-api`. Perilaku penyaji berkas statis diuji terhadap image web (`terka-web/scripts/image_test.sh`).
+
 Tambahan yang belum ada di repo lama:
 
 - Tes bahwa identitas transaksi tidak bocor ke request berikutnya pada koneksi yang sama.
@@ -363,7 +366,7 @@ Rencana implementasi ditulis per tahap, sesaat sebelum tahap itu dikerjakan, sup
 | 8. Mirror langsung | Pekerja latar, metrik selisih, alert | Baris baru di staging muncul di salinannya dalam hitungan detik; Supabase mati tidak mengganggu sinkronisasi |
 | 9. Perpindahan produksi | Tinjauan keamanan, migrasi data, DNS | Ekspor sebelum dan sesudah cocok; mirror langsung berjalan di produksi |
 
-Tahap 3–4 (server) dan 5–6 (klien) tidak saling bergantung sampai integrasi dan boleh dikerjakan berselang.
+Tahap 3–4 (server) dan 5–6 (klien) tidak saling bergantung sampai integrasi dan boleh dikerjakan berselang. Tahap 1 juga mencakup pemisahan ke `terka-api` dan `terka-web`; tahap 5 dan 6 dikerjakan di `terka-web`.
 
 ## 11. Risiko dan Hal yang Belum Diverifikasi
 
