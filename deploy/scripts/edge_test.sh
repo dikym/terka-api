@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs the edge routes (deploy/Caddyfile.routes) in the edge image built from deploy/caddy in front of two stand-in
-# containers named like an environment's api and web, and checks which one answers each path.
+# Runs the edge routes (deploy/Caddyfile.routes) in the Caddy base image built from deploy/caddy, in
+# front of two stand-in containers named like an environment's api and web, and checks which one
+# answers each path.
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -26,7 +27,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker build -q -t terka-edge:test "$repo/deploy/caddy" >/dev/null || { echo "edge image build failed"; exit 1; }
+edge_image=ghcr.io/dikym/terka-caddy:$(cat "$repo/deploy/caddy/VERSION")
+docker build -q -t "$edge_image" "$repo/deploy/caddy" >/dev/null || { echo "caddy base image build failed"; exit 1; }
 docker network create "$network" >/dev/null
 for service in api web; do
 	containers+=("$(docker run -d --network "$network" --network-alias "terka-staging-$service" \
@@ -45,7 +47,7 @@ CADDY
 containers+=("$(docker run -d --network "$network" -p 127.0.0.1:18095:8443 \
 	-v "$work/Caddyfile:/etc/caddy/Caddyfile:ro" \
 	-v "$repo/deploy/Caddyfile.routes:/etc/caddy/Caddyfile.routes:ro" \
-	terka-edge:test)")
+	"$edge_image")")
 
 for _ in $(seq 1 50); do
 	curl -s -o /dev/null http://127.0.0.1:18095/ && break

@@ -1,0 +1,77 @@
+# The shared Caddy base image (deploy/caddy), used by the VPS edge and by terka-web's image.
+# A push to main that changes deploy/caddy publishes ghcr.io/dikym/terka-caddy:<deploy/caddy/VERSION>
+# for amd64 and arm64. Every night the published image is scanned, so a newly announced
+# vulnerability fails this workflow (and GitHub tells the owner) instead of blocking app deploys.
+name: caddy
+
+on:
+  push:
+    branches: [main]
+    paths: [deploy/caddy/**]
+  schedule:
+    - cron: "0 20 * * *" # 04:00 WITA
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Name the image
+        run: echo "IMAGE=ghcr.io/${{ github.repository_owner }}/terka-caddy:$(cat deploy/caddy/VERSION)" >> "$GITHUB_ENV"
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A published tag never changes, so terka-web and the VPS always get what they pinned.
+      - name: Refuse to overwrite a published version
+        run: |
+          if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "$IMAGE is already published; bump deploy/caddy/VERSION"
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The Dockerfile itself refuses to build while a known vulnerability is reachable.
+      - name: Build and publish
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: deploy/caddy
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ env.IMAGE }}
+          push: true
+
+  scan:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.4"
+          cache: false
+      - name: Scan the published binary for each platform
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/terka-caddy:$(cat deploy/caddy/VERSION)"
+          status=0
+          for arch in amd64 arm64; do
+            container=$(docker create --platform "linux/$arch" "$image")
+            docker cp "$container:/usr/bin/caddy" "caddy-$arch"
+            docker rm "$container" >/dev/null
+            echo "== $image ($arch)"
+            go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary "caddy-$arch" || status=1
+          done
+          exit "$status"

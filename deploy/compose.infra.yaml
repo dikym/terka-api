@@ -31,8 +31,8 @@ services:
     networks: [terka]
 
   caddy:
-    # Built from deploy/caddy by CI; the tag is set in .env next to this file.
-    image: ${TERKA_EDGE_IMAGE:?set TERKA_EDGE_IMAGE in /opt/terka/infra/.env}
+    # The shared base from deploy/caddy; bump with deploy/caddy/VERSION.
+    image: ghcr.io/dikym/terka-caddy:2.11.9-p1
     restart: unless-stopped
     ports:
       # IPv4 only: Cloudflare reaches the origin through the A record, and the console firewall

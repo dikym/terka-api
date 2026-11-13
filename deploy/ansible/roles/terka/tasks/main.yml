@@ -41,13 +41,10 @@
     - { src: scripts/create-env-db.sh, dest: bin/create-env-db.sh, mode: "0750" }
     - { src: scripts/deploy.sh, dest: bin/deploy.sh, mode: "0750" }
 
-# Compose reads this file both as the Postgres env_file and for the edge image tag.
-- name: Write the infrastructure settings
+- name: Write the Postgres superuser password
   ansible.builtin.copy:
     dest: "{{ terka_root }}/infra/.env"
-    content: |
-      POSTGRES_PASSWORD={{ postgres_superuser_password }}
-      TERKA_EDGE_IMAGE={{ terka_edge_image }}
+    content: "POSTGRES_PASSWORD={{ postgres_superuser_password }}\n"
     owner: deploy
     group: deploy
     mode: "0600"

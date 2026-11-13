@@ -10,7 +10,7 @@ DEV_APP_PASSWORD := localdevonlyapppw1
 DEV_DB := localhost:5433/terka_dev
 export TERKA_TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5433/postgres
 
-.PHONY: help db dev stack stack-down build image test pgtap lint
+.PHONY: help db dev caddy stack stack-down build image test pgtap lint
 
 help:
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -27,7 +27,10 @@ dev: db ## run the api on :8080 with live reload, against the terka_dev database
 	cd server && TERKA_ENV=local TERKA_ADDR=:8080 \
 		TERKA_DATABASE_URL=postgres://terka_dev_app:$(DEV_APP_PASSWORD)@$(DEV_DB) go tool air
 
-stack: ## build and run api, web, postgres and caddy together on http://localhost:8800
+caddy: ## build the shared Caddy base image under its published tag
+	docker build -t ghcr.io/dikym/terka-caddy:$$(cat deploy/caddy/VERSION) deploy/caddy
+
+stack: caddy ## build and run api, web, postgres and caddy together on http://localhost:8800
 	$(LOCAL_COMPOSE) up -d --build --wait caddy
 
 stack-down: ## stop the local stack (add ARGS=-v to also drop its database)

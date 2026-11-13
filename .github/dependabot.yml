@@ -1,0 +1,9 @@
+# Opens a pull request when a new Caddy or Go image is released, so the base image in deploy/caddy
+# can be rebuilt on it and its --replace lines trimmed. The xcaddy line and VERSION are bumped by
+# hand in that pull request; caddy_version_test.sh fails until they match.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /deploy/caddy
+    schedule:
+      interval: weekly

@@ -73,24 +73,43 @@ observability dipasang.
 
 ## Caddy
 
-Caddy tepi memakai image `ghcr.io/dikym/terka-edge:<sha>` yang dibangun CI `terka-api` (job
-`edge`). Image ini berisi Caddy yang dibangun ulang dengan modul yang sudah ditambal, dan build-nya
-gagal kalau masih ada celah yang diketahui.
+Caddy tepi dan container web sama-sama memakai image dasar publik `ghcr.io/dikym/terka-caddy:<versi>`:
+Caddy rilis resmi yang dibangun ulang dengan modul yang sudah ditambal. Sumbernya
+`deploy/caddy/Dockerfile`, versinya `deploy/caddy/VERSION` (misalnya `2.11.9-p1`).
 
-1. Isi `terka_edge_image` di `deploy/ansible/group_vars/all/main.yml` dengan tag dari push terakhir
-   ke `main`, lalu jalankan playbook lagi (tag masuk ke `/opt/terka/infra/.env`).
-2. Setelah sertifikat asal terpasang (`docs/runbooks/cloudflare.md` langkah 4), sebagai `deploy`:
+Menyalakan Caddy tepi setelah sertifikat asal terpasang (`docs/runbooks/cloudflare.md` langkah 4),
+sebagai `deploy`:
 
 ```sh
 docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d caddy
 ```
 
-Memperbarui Caddy tepi: ganti `terka_edge_image`, jalankan playbook, lalu perintah yang sama.
 Selama Caddy dimulai ulang, situs tidak bisa diakses beberapa detik.
 
-Tambalan modul ada di `deploy/caddy/Dockerfile` (dan salinan identiknya di `terka-web/Dockerfile`).
-Setiap kali Caddy merilis versi baru, naikkan versinya di kedua berkas dan hapus `--replace` yang
-sudah tercakup rilis itu.
+### Sekali saja, setelah push pertama `terka-api`
+
+Workflow `caddy` menerbitkan image dasar. GitHub membuat paket baru sebagai privat; ubah sekali di
+GitHub → Packages → `terka-caddy` → Package settings → Change visibility → **Public**. Sebelum itu,
+CI `terka-web` dan VPS tidak bisa menarik image-nya. Isinya hanya Caddy, tanpa kode atau rahasia
+Terka.
+
+### Pemindaian malam dan celah baru
+
+Workflow `caddy` memindai image dasar setiap malam (04.00 WITA). Kalau gagal, GitHub mengirim
+notifikasi; deploy API dan UI tidak terhalang. Untuk menanggapinya:
+
+1. Di `deploy/caddy/Dockerfile`, tambah atau naikkan `--replace` modul yang disebut pemindai.
+2. Naikkan tingkat tambalan di `deploy/caddy/VERSION` (`2.11.9-p1` → `2.11.9-p2`) dan tag di
+   `deploy/compose.infra.yaml`. `caddy_version_test.sh` gagal kalau keduanya tidak cocok.
+3. Push ke `main`; workflow `caddy` menerbitkan tag baru. Tag lama tidak pernah ditimpa.
+4. Di `terka-web/Dockerfile`, naikkan tag `FROM ghcr.io/dikym/terka-caddy:…` dan push.
+5. Di VPS: jalankan playbook (menyalin compose baru), lalu perintah `up -d caddy` di atas.
+
+### Rilis Caddy baru
+
+Dependabot membuka PR yang menaikkan `caddy:<rilis>-alpine` di `deploy/caddy/Dockerfile`. Di PR itu,
+samakan juga `xcaddy build v<rilis>` dan `VERSION` (`<rilis>-p1`), dan hapus `--replace` yang modulnya
+sudah sama atau lebih baru di `go.mod` rilis tersebut. Lalu lanjutkan langkah 3–5 di atas.
 
 ## Urutan rilis
 

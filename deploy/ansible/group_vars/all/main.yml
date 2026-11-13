@@ -9,9 +9,6 @@ deploy_ci_public_keys:
   web: ""
 
 terka_root: /opt/terka
-
-# The edge Caddy image built by terka-api CI, e.g. ghcr.io/dikym/terka-edge:<commit sha>.
-terka_edge_image: ""
 terka_environments:
   - staging
 

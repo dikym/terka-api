@@ -67,6 +67,7 @@ jobs:
       - run: bash deploy/scripts/deploy_test.sh
       - run: bash deploy/scripts/compose_test.sh
       - run: bash deploy/scripts/edge_test.sh
+      - run: bash deploy/scripts/caddy_version_test.sh
 
   image:
     needs: [server, pgtap, scripts]
@@ -93,48 +94,6 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.IMAGE }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-      - name: Log in to GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: docker push "$IMAGE"
-
-  # The edge Caddy. Its Dockerfile refuses to build while a known vulnerability is reachable.
-  edge:
-    needs: [scripts]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/terka-edge:${{ github.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: deploy/caddy
-          platforms: linux/amd64
-          tags: ${{ env.IMAGE }}
-          load: true
-          cache-from: type=gha,scope=edge
-          cache-to: type=gha,scope=edge,mode=max
       - name: Scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
