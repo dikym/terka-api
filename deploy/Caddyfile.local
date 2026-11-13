@@ -1,0 +1,10 @@
+{
+	auto_https off
+	admin off
+}
+
+import /etc/caddy/Caddyfile.routes
+
+:8800 {
+	import routes terka-local
+}

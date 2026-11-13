@@ -1,0 +1,81 @@
+# The whole system on one machine, built from source, routed the way the VPS routes it:
+#   make stack        → http://localhost:8800 (TERKA_STACK_PORT to change it)
+# The web image is built from the terka-web checkout next to this repository (TERKA_WEB_DIR).
+# Local only: every password here is fixed and public.
+name: terka-local
+
+x-api: &api
+  image: terka-api:local
+  read_only: true
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./postgres/init/00-roles.sql:/docker-entrypoint-initdb.d/00-roles.sql:ro
+      - ./local/10-terka-local.sql:/docker-entrypoint-initdb.d/10-terka-local.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *api
+    # Built once by the api service; never pulled.
+    pull_policy: never
+    command: ["migrate"]
+    environment:
+      TERKA_MIGRATE_DATABASE_URL: postgres://terka_local_owner:localonlyownerpw1@postgres:5432/terka_local
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *api
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: local
+    environment:
+      TERKA_ENV: local
+      TERKA_DATABASE_URL: postgres://terka_local_app:localonlyapppw123@postgres:5432/terka_local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      default:
+        aliases: [terka-local-api]
+
+  web:
+    build:
+      context: ${TERKA_WEB_DIR:-../../terka-web}
+      args:
+        VERSION: local
+    image: terka-web:local
+    environment:
+      TERKA_ENV: local
+    read_only: true
+    networks:
+      default:
+        aliases: [terka-local-web]
+
+  caddy:
+    image: caddy:2.11.9-alpine
+    ports:
+      - "127.0.0.1:${TERKA_STACK_PORT:-8800}:8800"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.routes:/etc/caddy/Caddyfile.routes:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+volumes:
+  pgdata:
