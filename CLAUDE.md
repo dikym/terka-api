@@ -110,4 +110,4 @@ Create the folders if they do not exist. This location **replaces** the skill's 
 
 ### After Implementation Is Complete
 
-After a plan's implementation is complete, delete that feature's plan file from `docs/superpowers/plans/`. The rewrite spec (`2026-11-10-go-svelte-rewrite.md`) is kept until its final stage is done, because the next stage's plan is written from it.
+After a plan's implementation is complete, delete that feature's plan file from `docs/superpowers/plans/`. The API spec (`2026-11-14-api-server-design.md`) and the task list (`2026-11-14-rewrite-tasks-api.md`) are kept until the rewrite's final stage is done, because each next stage's plan is written from them.

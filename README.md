@@ -4,8 +4,8 @@ Lihat pelatnya, terka asalnya. API Terka yang dikelola sendiri (Go + PostgreSQL)
 infrastruktur VPS-nya. UI ada di repo `terka-web`. Repo `terka` (Next.js + Supabase) tetap ada
 sebagai jalur cadangan.
 
-Desain: `docs/superpowers/specs/2026-11-10-go-svelte-rewrite.md` dan
-`docs/superpowers/specs/2026-11-13-split-web-and-api-design.md`.
+Desain dan daftar tugas (lokal, tidak di-commit): `docs/superpowers/specs/` dan
+`docs/superpowers/plans/2026-11-14-rewrite-tasks-api.md`. Runbook: `docs/runbooks/`.
 
 ## Struktur
 
