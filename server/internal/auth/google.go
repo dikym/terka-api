@@ -21,10 +21,19 @@ import (
 )
 
 const (
-	GoogleIssuer = "https://accounts.google.com"
-	oauthTTL     = 10 * time.Minute
-	googleWait   = 10 * time.Second
+	oauthTTL   = 10 * time.Minute
+	googleWait = 10 * time.Second
 )
+
+// GoogleProvider holds Google's published endpoints, so starting the server needs no request to
+// Google; its signing keys are fetched on the first sign-in and refreshed as they rotate.
+var GoogleProvider = oidc.ProviderConfig{
+	IssuerURL:  "https://accounts.google.com",
+	AuthURL:    "https://accounts.google.com/o/oauth2/v2/auth",
+	TokenURL:   "https://oauth2.googleapis.com/token",
+	JWKSURL:    "https://www.googleapis.com/oauth2/v3/certs",
+	Algorithms: []string{oidc.RS256},
+}
 
 var (
 	ErrCancelled    = errors.New("sign-in cancelled at google")
@@ -44,15 +53,12 @@ type Google struct {
 	client   *http.Client
 }
 
-// NewGoogle reads the provider's discovery document; issuerURL is GoogleIssuer outside tests.
-func NewGoogle(ctx context.Context, issuerURL, clientID, clientSecret, redirectURL string,
-	keys Keys, a *db.Auth, sessions *Sessions, now func() time.Time) (*Google, error) {
+// NewGoogle signs in against provider, which is GoogleProvider outside tests.
+func NewGoogle(ctx context.Context, provider oidc.ProviderConfig, clientID, clientSecret, redirectURL string,
+	keys Keys, a *db.Auth, sessions *Sessions, now func() time.Time) *Google {
 	client := &http.Client{Timeout: googleWait}
-	// The provider keeps this context to fetch signing keys later, so it must outlive the caller's.
-	provider, err := oidc.NewProvider(oidc.ClientContext(context.WithoutCancel(ctx), client), issuerURL)
-	if err != nil {
-		return nil, fmt.Errorf("google discovery: %w", err)
-	}
+	// The key set keeps this context to fetch signing keys later, so it must outlive the caller's.
+	p := provider.NewProvider(oidc.ClientContext(context.WithoutCancel(ctx), client))
 	return &Google{
 		Auth:     a,
 		Sessions: sessions,
@@ -60,14 +66,14 @@ func NewGoogle(ctx context.Context, issuerURL, clientID, clientSecret, redirectU
 		Config: &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
-			Endpoint:     provider.Endpoint(),
+			Endpoint:     p.Endpoint(),
 			RedirectURL:  redirectURL,
 			Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
 		},
-		Verifier: provider.Verifier(&oidc.Config{ClientID: clientID, Now: now}),
+		Verifier: p.Verifier(&oidc.Config{ClientID: clientID, Now: now}),
 		Now:      now,
 		client:   client,
-	}, nil
+	}
 }
 
 type oauthState struct {

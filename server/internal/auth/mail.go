@@ -70,8 +70,9 @@ type smtpMailer struct {
 }
 
 // NewSMTPMailer sends through smtp+starttls://user:pass@host:port, which must offer STARTTLS, or
-// through plain smtp://host:port to this machine only, for Mailpit.
-func NewSMTPMailer(smtpURL, from string) (Mailer, error) {
+// through plain smtp://host:port to Mailpit: on this machine, or anywhere when local is set, for the
+// containerised local stack.
+func NewSMTPMailer(smtpURL, from string, local bool) (Mailer, error) {
 	// url.Parse errors quote the whole URL, password included, so they are not passed on.
 	u, err := url.Parse(smtpURL)
 	if err != nil || u.Hostname() == "" || u.Port() == "" {
@@ -82,7 +83,7 @@ func NewSMTPMailer(smtpURL, from string) (Mailer, error) {
 	case "smtp+starttls":
 		m.starttls = true
 	case "smtp":
-		if ip := net.ParseIP(m.host); m.host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		if ip := net.ParseIP(m.host); !local && m.host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 			return nil, errors.New("mail: plain smtp:// is only allowed to this machine")
 		}
 	default:

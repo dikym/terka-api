@@ -24,3 +24,16 @@ terka_db_passwords:
     owner: "{{ vault_staging_owner_password }}"
     app: "{{ vault_staging_app_password }}"
     auth: "{{ vault_staging_auth_password }}"
+
+# Sign-in settings per environment. The auth key differs per environment, so a stolen staging key
+# opens nothing in production.
+terka_auth:
+  staging:
+    public_url: https://staging.terka.my.id
+    auth_key: "{{ vault_staging_auth_key }}"
+    google_client_id: "{{ vault_google_client_id }}"
+    google_client_secret: "{{ vault_google_client_secret }}"
+    turnstile_secret: "{{ vault_staging_turnstile_secret }}"
+    turnstile_hostnames: staging.terka.my.id
+    smtp_url: "{{ vault_smtp_url }}"
+    mail_from: Terka <no-reply@terka.my.id>

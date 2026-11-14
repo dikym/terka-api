@@ -8,3 +8,10 @@ vault_postgres_superuser_password: replace-me
 vault_staging_owner_password: replace-me
 vault_staging_app_password: replace-me
 vault_staging_auth_password: replace-me
+# Sign-in. The auth key comes from `openssl rand -base64 32`, one per environment.
+vault_staging_auth_key: replace-me
+vault_google_client_id: replace-me.apps.googleusercontent.com
+vault_google_client_secret: replace-me
+vault_staging_turnstile_secret: replace-me
+# Resend: smtp+starttls://resend:<api key>@smtp.resend.com:587
+vault_smtp_url: smtp+starttls://resend:replace-me@smtp.resend.com:587

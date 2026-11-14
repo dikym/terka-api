@@ -15,9 +15,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dikym/terka-api/server/internal/auth"
 	"github.com/dikym/terka-api/server/internal/config"
+	"github.com/dikym/terka-api/server/internal/db"
 	"github.com/dikym/terka-api/server/internal/migrate"
 	"github.com/dikym/terka-api/server/internal/server"
 	"github.com/dikym/terka-api/server/migrations"
@@ -75,16 +76,31 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 	}
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
 
-	ping := func(context.Context) error { return errors.New("no database configured") }
-	if cfg.DatabaseURL != "" {
-		// The pool dials lazily, so a database that is down at start does not stop the server.
-		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	deps := server.Deps{Version: version, Env: cfg.Env, Logger: log,
+		Ping: func(context.Context) error { return errors.New("no database configured") }}
+	// Local development may run without a database; everywhere else config requires both URLs.
+	if cfg.DatabaseURL != "" && cfg.AuthDatabaseURL != "" {
+		app, err := db.OpenApp(ctx, cfg.DatabaseURL)
 		if err != nil {
 			tell(stderr, "TERKA_DATABASE_URL: %v\n", err)
 			return 1
 		}
-		defer pool.Close()
-		ping = pool.Ping
+		defer app.Close()
+		authDB, err := db.OpenAuth(ctx, cfg.AuthDatabaseURL)
+		if err != nil {
+			tell(stderr, "TERKA_AUTH_DATABASE_URL: %v\n", err)
+			return 1
+		}
+		defer authDB.Close()
+		deps.Ping = func(ctx context.Context) error { return errors.Join(app.Ping(ctx), authDB.Ping(ctx)) }
+
+		handlers, err := signIn(ctx, cfg, app, authDB, log)
+		if err != nil {
+			tell(stderr, "%v\n", err)
+			return 1
+		}
+		deps.Routes = handlers.Mount
+		go cleanup(ctx, handlers.Sessions, log, cleanupEvery)
 	}
 
 	listener, err := net.Listen("tcp", cfg.Addr)
@@ -93,12 +109,7 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 		return 1
 	}
 	srv := &http.Server{
-		Handler: server.New(server.Deps{
-			Version: version,
-			Env:     cfg.Env,
-			Ping:    ping,
-			Logger:  log,
-		}),
+		Handler:           server.New(deps),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -172,4 +183,52 @@ func health(ctx context.Context, getenv func(string) string) int {
 		return 1
 	}
 	return 0
+}
+
+func signIn(ctx context.Context, cfg config.Config, app *db.App, authDB *db.Auth, log *slog.Logger) (*auth.Handlers, error) {
+	keys, err := auth.DeriveKeys(cfg.AuthKey)
+	if err != nil {
+		return nil, err
+	}
+	mailer, err := auth.NewSMTPMailer(cfg.SMTPURL, cfg.MailFrom, cfg.Env == "local")
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now
+	sessions := &auth.Sessions{Auth: authDB, Now: now}
+	h := &auth.Handlers{
+		Codes: &auth.EmailCodes{
+			Auth: authDB, Sessions: sessions, Keys: keys, Mailer: mailer,
+			Turnstile: auth.NewTurnstile(cfg.TurnstileSecret, cfg.TurnstileHostnames, "", nil),
+			PublicURL: cfg.PublicURL, Now: now, Log: log,
+		},
+		Sessions: sessions, Auth: authDB, App: app,
+		Env: cfg.Env, TrustCloudflare: cfg.TrustCloudflare, Log: log, Now: now,
+	}
+	if cfg.GoogleClientID != "" {
+		h.Google = auth.NewGoogle(ctx, auth.GoogleProvider, cfg.GoogleClientID, cfg.GoogleClientSecret,
+			cfg.PublicURL+"/api/auth/google/callback", keys, authDB, sessions, now)
+	}
+	return h, nil
+}
+
+// Expired sessions, codes and failures are swept on this beat; tests shorten it.
+var cleanupEvery = time.Hour
+
+func cleanup(ctx context.Context, sessions *auth.Sessions, log *slog.Logger, every time.Duration) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			removed, err := sessions.Cleanup(ctx)
+			if err != nil {
+				log.WarnContext(ctx, "cleanup failed", "error", err)
+				continue
+			}
+			log.InfoContext(ctx, "cleanup", "sessions_removed", removed)
+		}
+	}
 }

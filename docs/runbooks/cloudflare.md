@@ -87,3 +87,33 @@ curl -s -m 10 -6 --resolve 'staging.terka.my.id:443:[<IPv6 VPS>]' https://stagin
                                                                                # kalau ada IPv6: harus gagal
 curl -sI https://terka.my.id/ | grep -i '^server:'                             # masih Vercel
 ```
+
+## 8. Turnstile
+
+Dashboard → Turnstile → Add widget:
+
+- Nama `terka-staging`, hostname `staging.terka.my.id`, mode **Managed**.
+- *Site key* dipakai build UI (`terka-web`); *secret key* masuk vault sebagai
+  `vault_staging_turnstile_secret` (lihat runbook deploy).
+- UI memasang widget dengan `action` `email_request`. Server menolak token yang dibuat untuk
+  hostname atau action lain, dan menolak kunci uji Cloudflare (`1x000…AA` dan saudaranya) di luar
+  lokal.
+
+Produksi nanti mendapat widget sendiri untuk `terka.my.id`, dengan secret sendiri.
+
+## 9. Batas laju email
+
+Lapisan pertama sebelum server: Security → WAF → Rate limiting rules → Create rule (paket gratis
+memberi satu aturan):
+
+- Nama `auth-email`.
+- Jika: *URI Path* `starts with` `/api/auth/email/` **dan** *Request Method* `equals` `POST`.
+- Hitung per IP; 5 request per 10 detik.
+- Tindakan **Block** selama 10 detik.
+
+Server tetap membatasi sendiri (10 permintaan kode dan 30 verifikasi per IP per jam, 5 kode per
+alamat per jam, 80 email per jam dan 90 per hari seluruh layanan); aturan ini hanya meredam banjir
+sebelum sampai ke VPS.
+
+Pemeriksaan: kirim 6 `POST` cepat ke `/api/auth/email/request` dari satu mesin; yang keenam
+dijawab Cloudflare dengan 429 sebelum mencapai server.

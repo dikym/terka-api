@@ -1,5 +1,6 @@
 # The whole system on one machine, built from source, routed the way the VPS routes it:
 #   make stack        → http://localhost:8800 (TERKA_STACK_PORT to change it)
+#   sign-in emails    → http://localhost:8826 (Mailpit, TERKA_STACK_MAIL_PORT to change it)
 # The web image is built from the terka-web checkout next to this repository (TERKA_WEB_DIR).
 # Local only: every password here is fixed and public.
 name: terka-local
@@ -45,9 +46,16 @@ services:
       TERKA_ENV: local
       TERKA_DATABASE_URL: postgres://terka_local_app:localonlyapppw123@postgres:5432/terka_local
       TERKA_AUTH_DATABASE_URL: postgres://terka_local_auth:localonlyauthpw123@postgres:5432/terka_local
+      TERKA_PUBLIC_URL: http://localhost:${TERKA_STACK_PORT:-8800}
+      TERKA_SMTP_URL: smtp://mailpit:1025
+      # Google sign-in stays off unless a client is passed in from the shell.
+      TERKA_GOOGLE_CLIENT_ID: ${TERKA_GOOGLE_CLIENT_ID:-}
+      TERKA_GOOGLE_CLIENT_SECRET: ${TERKA_GOOGLE_CLIENT_SECRET:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
     networks:
       default:
         aliases: [terka-local-api]
@@ -64,6 +72,18 @@ services:
     networks:
       default:
         aliases: [terka-local-web]
+
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    environment:
+      MP_SMTP_DISABLE_RDNS: "true"
+    ports:
+      - "127.0.0.1:${TERKA_STACK_MAIL_PORT:-8826}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   caddy:
     # `make stack` builds this tag from deploy/caddy first, so the web image can start from it too.

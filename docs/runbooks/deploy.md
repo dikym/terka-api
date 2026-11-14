@@ -71,6 +71,36 @@ observability dipasang.
 (belum diisi)
 ```
 
+## Login
+
+Server menolak mulai di staging tanpa semua pengaturan login. Siapkan sekali per lingkungan, lalu
+masukkan ke vault (`ansible-vault edit deploy/ansible/group_vars/all/vault.yml`; bentuknya di
+`vault.example.yml`) dan jalankan ulang playbook:
+
+- **Kunci auth:** `openssl rand -base64 32` → `vault_staging_auth_key`. Satu kunci per lingkungan.
+  Mengganti kunci membatalkan kode email dan login Google yang sedang berjalan, tidak sesi yang
+  sudah ada.
+- **Google:** Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web
+  application). *Authorized redirect URIs*:
+  `https://staging.terka.my.id/api/auth/google/callback`, dan untuk lokal
+  `http://localhost:5173/api/auth/google/callback` serta `http://localhost:8800/api/auth/google/callback`.
+  Client ID dan secret → `vault_google_client_id`, `vault_google_client_secret`.
+- **Turnstile:** lihat runbook Cloudflare bagian 8 → `vault_staging_turnstile_secret`.
+- **Resend:** verifikasi domain `terka.my.id` (record SPF dan DKIM dari Resend dimasukkan ke DNS
+  Cloudflare, *DNS only*), buat API key dengan izin *Sending access*, lalu
+  `vault_smtp_url: smtp+starttls://resend:<api key>@smtp.resend.com:587`. Pengirim:
+  `Terka <no-reply@terka.my.id>`.
+
+Pemeriksaan setelah deploy:
+
+```sh
+curl -s https://staging.terka.my.id/api/auth/session        # 401 {"code":"signed_out",...}
+curl -sI https://staging.terka.my.id/api/auth/google/start | grep -i '^location:'
+                                                              # https://accounts.google.com/...
+```
+
+Server menghapus sesi, kode, dan catatan kegagalan yang kedaluwarsa setiap jam (log `cleanup`).
+
 ## Caddy
 
 Caddy tepi dan container web sama-sama memakai image dasar publik `ghcr.io/dikym/terka-caddy:<versi>`:

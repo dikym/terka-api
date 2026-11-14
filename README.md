@@ -38,6 +38,11 @@ make stack-down             # ARGS=-v untuk sekalian menghapus databasenya
 
 Image web dibangun dari `../terka-web`; ganti dengan `TERKA_WEB_DIR`.
 
+**Login di lokal.** Email masuk ke Mailpit: <http://localhost:8025> untuk `make dev`,
+<http://localhost:8826> untuk `make stack`. Turnstile memakai kunci uji Cloudflare yang selalu
+lolos (butuh internet). Login Google mati kecuali `TERKA_GOOGLE_CLIENT_ID` dan
+`TERKA_GOOGLE_CLIENT_SECRET` diisi di shell sebelum `make dev` atau `make stack`.
+
 ## Perintah
 
 Jalankan `make` untuk melihat daftar perintah.

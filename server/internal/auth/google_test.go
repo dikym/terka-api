@@ -40,12 +40,8 @@ func newGoogleEnv(t *testing.T) *googleEnv {
 
 func (e *googleEnv) newGoogle(t *testing.T) *auth.Google {
 	t.Helper()
-	g, err := auth.NewGoogle(context.Background(), e.issuer.URL, googleClient, "terka-secret", googleRedirect,
+	return auth.NewGoogle(context.Background(), e.issuer.Provider(), googleClient, "terka-secret", googleRedirect,
 		testKeys, e.auth, &auth.Sessions{Auth: e.auth, Now: e.clock.Now}, e.clock.Now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return g
 }
 
 func (e *googleEnv) signIn(t *testing.T, claims oidctest.Claims) (auth.Session, error) {

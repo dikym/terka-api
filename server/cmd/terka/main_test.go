@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/dikym/terka-api/server/internal/dbtest"
 )
 
@@ -190,4 +192,74 @@ func TestHealthFailsWhenNothingListens(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
+}
+
+func migrated(t *testing.T) dbtest.DB {
+	t.Helper()
+	db := dbtest.New(t)
+	var stderr bytes.Buffer
+	if code := run(context.Background(), []string{"migrate"}, env(map[string]string{"TERKA_MIGRATE_DATABASE_URL": db.OwnerURL}), io.Discard, &stderr); code != 0 {
+		t.Fatalf("migrate: %s", stderr.String())
+	}
+	return db
+}
+
+func TestServeMountsAuth(t *testing.T) {
+	db := migrated(t)
+	base, _, _ := startServe(t, map[string]string{
+		"TERKA_ENV": "local", "TERKA_DATABASE_URL": db.AppURL, "TERKA_AUTH_DATABASE_URL": db.AuthURL,
+	})
+	res, err := http.Get(base + "/api/auth/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 401 || !strings.Contains(string(body), `"code":"signed_out"`) {
+		t.Fatalf("session = %d %s, want 401 signed_out", res.StatusCode, body)
+	}
+	if got := status(t, base+"/readyz"); got != 200 {
+		t.Fatalf("readyz = %d, want 200 with both pools up", got)
+	}
+}
+
+func TestReadyzChecksBothPools(t *testing.T) {
+	db := migrated(t)
+	base, _, _ := startServe(t, map[string]string{
+		"TERKA_ENV": "local", "TERKA_DATABASE_URL": db.AppURL, "TERKA_AUTH_DATABASE_URL": "postgres://u:p@127.0.0.1:1/terka",
+	})
+	if got := status(t, base+"/readyz"); got != 503 {
+		t.Fatalf("readyz = %d, want 503 while the auth pool is down", got)
+	}
+}
+
+func TestCleanupRunsWhileServing(t *testing.T) {
+	cleanupEvery = 20 * time.Millisecond
+	t.Cleanup(func() { cleanupEvery = time.Hour })
+	db := migrated(t)
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, db.OwnerURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = owner.Close(ctx) }()
+	_, err = owner.Exec(ctx, `with u as (insert into auth.users (email) values ('ani@contoh.id') returning id)
+		insert into auth.sessions (user_id, token_hash, expires_at, absolute_expires_at, method)
+		select id, '\x01', now() - interval '1 day', now() + interval '1 day', 'email' from u`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startServe(t, map[string]string{"TERKA_ENV": "local", "TERKA_DATABASE_URL": db.AppURL, "TERKA_AUTH_DATABASE_URL": db.AuthURL})
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var left int
+		if err := owner.QueryRow(ctx, "select count(*) from auth.sessions").Scan(&left); err != nil {
+			t.Fatal(err)
+		}
+		if left == 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the expired session was never cleaned up")
 }

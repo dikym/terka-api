@@ -42,6 +42,17 @@ else
 	fail "the app settings template holds no owner credentials"
 fi
 
+# The server refuses to start outside local without these, so the template must write every one.
+missing=""
+while read -r name; do
+	grep -q "^$name=" "$repo/deploy/ansible/roles/terka/templates/env.j2" || missing="$missing $name"
+done < <(sed -n '/^var required = \[\]string{/,/^}/p' "$repo/server/internal/config/config.go" | grep -oE 'TERKA_[A-Z_]+')
+if [ -z "$missing" ]; then
+	pass "the app settings template writes every setting the server requires"
+else
+	fail "the app settings template writes every setting the server requires" "missing:$missing"
+fi
+
 if [ "$(jq -r '.services.api.networks.terka.aliases[0]' <<<"$config")" = terka-staging-api ]; then
 	pass "the edge reaches the api by its environment name"
 else

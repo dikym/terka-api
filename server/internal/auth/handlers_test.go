@@ -53,10 +53,7 @@ func newStack(t *testing.T, trustCloudflare bool) *stack {
 	s.issuer.Now = s.clock.Now
 	log := slog.New(slog.NewJSONHandler(s, nil))
 	s.sessions = &auth.Sessions{Auth: a, Now: s.clock.Now}
-	google, err := auth.NewGoogle(context.Background(), s.issuer.URL, googleClient, "terka-secret", googleRedirect, testKeys, a, s.sessions, s.clock.Now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	google := auth.NewGoogle(context.Background(), s.issuer.Provider(), googleClient, "terka-secret", googleRedirect, testKeys, a, s.sessions, s.clock.Now)
 	h := &auth.Handlers{
 		Codes: &auth.EmailCodes{
 			Auth: a, Sessions: s.sessions, Keys: testKeys, Mailer: s.mail, Turnstile: s.turnstile,

@@ -94,7 +94,7 @@ func getJSON(t *testing.T, u string, v any) {
 }
 
 func TestSMTPMailerDeliversToMailpit(t *testing.T) {
-	mailer, err := auth.NewSMTPMailer("smtp://127.0.0.1:1025", "Terka <no-reply@localhost>")
+	mailer, err := auth.NewSMTPMailer("smtp://127.0.0.1:1025", "Terka <no-reply@localhost>", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,11 +117,11 @@ func TestSMTPMailerDeliversToMailpit(t *testing.T) {
 
 func TestSMTPMailerRefusesPlainSMTPToARemoteHost(t *testing.T) {
 	for _, u := range []string{"smtp://smtp.resend.com:587", "smtp://203.0.113.7:25", "ftp://localhost:21", "smtp+starttls://smtp.resend.com"} {
-		if _, err := auth.NewSMTPMailer(u, "Terka <no-reply@terka.my.id>"); err == nil {
+		if _, err := auth.NewSMTPMailer(u, "Terka <no-reply@terka.my.id>", false); err == nil {
 			t.Errorf("%s: accepted", u)
 		}
 	}
-	if _, err := auth.NewSMTPMailer("smtp+starttls://u:p@smtp.resend.com:587", "not an address"); err == nil {
+	if _, err := auth.NewSMTPMailer("smtp+starttls://u:p@smtp.resend.com:587", "not an address", false); err == nil {
 		t.Error("bad from: accepted")
 	}
 }
@@ -143,7 +143,7 @@ func TestMailHeadersCannotBeInjected(t *testing.T) {
 			_ = conn.Close()
 		}
 	}()
-	mailer, err := auth.NewSMTPMailer("smtp://"+ln.Addr().String(), "Terka <no-reply@localhost>")
+	mailer, err := auth.NewSMTPMailer("smtp://"+ln.Addr().String(), "Terka <no-reply@localhost>", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,5 +159,15 @@ func TestMailHeadersCannotBeInjected(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if dialed.Load() {
 		t.Fatal("the mailer connected before refusing the headers")
+	}
+}
+
+// The containerised local stack reaches Mailpit by its service name.
+func TestSMTPMailerAllowsPlainSMTPToAnyHostOnlyLocally(t *testing.T) {
+	if _, err := auth.NewSMTPMailer("smtp://mailpit:1025", "Terka <no-reply@localhost>", true); err != nil {
+		t.Fatalf("local: %v", err)
+	}
+	if _, err := auth.NewSMTPMailer("smtp://mailpit:1025", "Terka <no-reply@localhost>", false); err == nil {
+		t.Fatal("not local: plain smtp to another host accepted")
 	}
 }

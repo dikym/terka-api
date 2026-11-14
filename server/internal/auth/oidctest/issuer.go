@@ -1,5 +1,5 @@
-// Package oidctest is a fake OpenID Connect provider for tests: discovery, keys, and a token
-// endpoint that checks PKCE and issues ID tokens with whatever claims a test asks for.
+// Package oidctest is a fake OpenID Connect provider for tests: keys, and a token endpoint that
+// checks PKCE and issues ID tokens with whatever claims a test asks for.
 package oidctest
 
 import (
@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
 )
 
@@ -53,15 +54,6 @@ func NewIssuer(t *testing.T, clientID string) *Issuer {
 	t.Helper()
 	i := &Issuer{ClientID: clientID, Now: time.Now, grants: map[string]grant{}}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{
-			"issuer":                                i.URL,
-			"authorization_endpoint":                i.URL + "/auth",
-			"token_endpoint":                        i.URL + "/token",
-			"jwks_uri":                              i.URL + "/jwks",
-			"id_token_signing_alg_values_supported": []string{"RS256"},
-		})
-	})
 	mux.HandleFunc("GET /jwks", func(w http.ResponseWriter, _ *http.Request) {
 		signing, _ := keys()
 		writeJSON(w, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &signing.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}})
@@ -71,6 +63,14 @@ func NewIssuer(t *testing.T, clientID string) *Issuer {
 	t.Cleanup(srv.Close)
 	i.URL = srv.URL
 	return i
+}
+
+// Provider describes the issuer the way auth.GoogleProvider describes Google.
+func (i *Issuer) Provider() oidc.ProviderConfig {
+	return oidc.ProviderConfig{
+		IssuerURL: i.URL, AuthURL: i.URL + "/auth", TokenURL: i.URL + "/token", JWKSURL: i.URL + "/jwks",
+		Algorithms: []string{oidc.RS256},
+	}
 }
 
 // SignWithAnotherKey makes every later ID token carry a signature the published keys do not match.

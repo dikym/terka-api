@@ -20,7 +20,7 @@ help:
 db: ## start the local Postgres (port 5433) and Mailpit (http://localhost:8025) used by tests
 	$(DEV_COMPOSE) up -d --wait postgres mailpit
 
-dev: db ## run the api on :8080 with live reload, against the terka_dev database
+dev: db ## run the api on :8080 with live reload, against the terka_dev database and Mailpit
 	COMPOSE_FILE=deploy/compose.dev.yaml COMPOSE_PROJECT_NAME=terka-dev \
 		OWNER_PASSWORD=$(DEV_OWNER_PASSWORD) APP_PASSWORD=$(DEV_APP_PASSWORD) AUTH_PASSWORD=$(DEV_AUTH_PASSWORD) \
 		bash deploy/scripts/create-env-db.sh dev
