@@ -26,7 +26,8 @@ func NormalizeEmail(raw string) (string, error) {
 		}
 	}
 	local, domain, ok := strings.Cut(email, "@")
-	if !ok || local == "" || strings.Contains(domain, "@") || !strings.Contains(domain, ".") ||
+	// A local part that is only a "+tag" would leave Mailbox an empty name, shared by every such address.
+	if !ok || local == "" || local[0] == '+' || strings.Contains(domain, "@") || !strings.Contains(domain, ".") ||
 		strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") {
 		return "", ErrInvalidEmail
 	}

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/netip"
 	"sync"
 	"time"
 
@@ -51,4 +52,18 @@ func (l *Limiter) Allow(key string, now time.Time) bool {
 	}
 	b.lastSeen = now
 	return b.limiter.AllowN(now, 1)
+}
+
+// IPKey is what the per-IP limits count against. An IPv6 /64 usually belongs to one subscriber, who
+// can pick any of its 2^64 addresses, so the whole prefix counts as one address.
+func IPKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.WithZone("").Unmap()
+	if addr.Is4() {
+		return addr.String()
+	}
+	return netip.PrefixFrom(addr, 64).Masked().String()
 }

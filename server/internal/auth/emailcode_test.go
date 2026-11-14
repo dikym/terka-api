@@ -20,12 +20,16 @@ import (
 )
 
 type stubMailer struct {
-	mu   sync.Mutex
-	sent []auth.Mail
-	err  error
+	mu     sync.Mutex
+	sent   []auth.Mail
+	err    error
+	onSend func(ctx context.Context)
 }
 
-func (m *stubMailer) Send(_ context.Context, mail auth.Mail) error {
+func (m *stubMailer) Send(ctx context.Context, mail auth.Mail) error {
+	if m.onSend != nil {
+		m.onSend(ctx)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.err != nil {
@@ -558,5 +562,46 @@ func TestLockIsReportedOnlyToTheRequestingBrowser(t *testing.T) {
 	for _, binding := range []string{"made-up-binding", strings.Repeat("A", 43)} {
 		_, err := e.verify("ani@contoh.id", "123456", binding)
 		assertIs(t, "locked mailbox, binding of no request", err, auth.ErrInvalid)
+	}
+}
+
+func TestPastedCodeWithSpacesWorks(t *testing.T) {
+	e := newCodesEnv(t)
+	binding, code := e.request(t, "ani@contoh.id", "")
+	if _, err := e.verify("ani@contoh.id", " "+code+"\n", binding); err != nil {
+		t.Fatalf("code with surrounding whitespace: %v", err)
+	}
+}
+
+func TestMalformedCodesAreNotCountedAsGuesses(t *testing.T) {
+	e := newCodesEnv(t)
+	binding, code := e.request(t, "ani@contoh.id", "")
+	for _, garbage := range []string{"", "12345", "1234567", "abcdef", "12 456", "１２３４５６"} {
+		_, err := e.verify("ani@contoh.id", garbage, binding)
+		assertIs(t, fmt.Sprintf("code %q", garbage), err, auth.ErrInvalid)
+	}
+	if n := e.count(t, "select (select count(*) from auth.signin_failures) + (select coalesce(sum(failed_attempts), 0) from auth.email_codes)"); n != 0 {
+		t.Fatalf("%d failures counted for malformed codes, want none", n)
+	}
+	if _, err := e.verify("ani@contoh.id", code, binding); err != nil {
+		t.Fatalf("the real code after malformed ones: %v", err)
+	}
+}
+
+func TestCodeEmailIsSentEvenIfTheCallerGoesAway(t *testing.T) {
+	e := newCodesEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	var cancelled bool
+	e.mail.onSend = func(sendCtx context.Context) {
+		cancel()
+		cancelled = sendCtx.Err() != nil
+	}
+	res, err := e.codes.Request(ctx, "ani@contoh.id", "turnstile-token", "203.0.113.7", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.remember("ani@contoh.id", res.Binding, e.mail.lastCode(t))
+	if cancelled {
+		t.Fatal("the send was cancelled with the request, after the code was already stored")
 	}
 }

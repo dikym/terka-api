@@ -152,7 +152,7 @@ func (h *Handlers) emailRequest(w http.ResponseWriter, r *http.Request) error {
 		return clientErr(http.StatusBadRequest, "invalid_email", "the email address is not valid")
 	}
 	ip := httpx.ClientIP(r, h.TrustCloudflare)
-	if !h.requestLimit.Allow(ip, h.Now()) {
+	if !h.requestLimit.Allow(IPKey(ip), h.Now()) {
 		return errRateLimited
 	}
 	res, err := h.Codes.Request(r.Context(), in.Email, in.Turnstile, ip, cookieValue(r, bindingCookie))
@@ -181,7 +181,7 @@ func (h *Handlers) emailVerify(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &in); err != nil {
 		return err
 	}
-	if !h.verifyLimit.Allow(httpx.ClientIP(r, h.TrustCloudflare), h.Now()) {
+	if !h.verifyLimit.Allow(IPKey(httpx.ClientIP(r, h.TrustCloudflare)), h.Now()) {
 		return errRateLimited
 	}
 	token, s, err := h.Codes.Verify(r.Context(), in.Email, in.Code, cookieValue(r, bindingCookie))
@@ -202,7 +202,7 @@ func (h *Handlers) emailVerify(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handlers) googleStart(w http.ResponseWriter, r *http.Request) error {
-	if !h.googleLimit.Allow(httpx.ClientIP(r, h.TrustCloudflare), h.Now()) {
+	if !h.googleLimit.Allow(IPKey(httpx.ClientIP(r, h.TrustCloudflare)), h.Now()) {
 		return errRateLimited
 	}
 	redirect, cookie, err := h.Google.Start()
@@ -241,19 +241,21 @@ func (h *Handlers) logout(w http.ResponseWriter, r *http.Request) error {
 	if n, _ := io.ReadFull(io.LimitReader(r.Body, 1), make([]byte, 1)); n > 0 {
 		return clientErr(http.StatusBadRequest, "bad_request", "logout takes no body")
 	}
+	// Cleared first: even when the server cannot end the session, this browser stops carrying it,
+	// and the 500 tells the client the session may still be alive elsewhere.
+	clearCookie(w, sessionCookie, http.SameSiteLaxMode)
 	if token := cookieValue(r, sessionCookie); token != "" {
 		if err := h.Sessions.Revoke(r.Context(), token); err != nil {
 			return err
 		}
 	}
-	clearCookie(w, sessionCookie, http.SameSiteLaxMode)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
 func (h *Handlers) sessionRemoved(w http.ResponseWriter, r *http.Request) error {
-	if !h.removedLimit.Allow(httpx.ClientIP(r, h.TrustCloudflare), h.Now()) {
+	if !h.removedLimit.Allow(IPKey(httpx.ClientIP(r, h.TrustCloudflare)), h.Now()) {
 		return errRateLimited
 	}
 	id, err := uuid.Parse(r.URL.Query().Get("session"))

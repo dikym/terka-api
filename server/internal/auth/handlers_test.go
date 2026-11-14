@@ -578,3 +578,34 @@ func TestNoSecretReachesTheLogs(t *testing.T) {
 		t.Fatalf("the flows did not log what they should:\n%s", s.logs.String())
 	}
 }
+
+func TestLogoutClearsTheCookieEvenWhenRevokingFails(t *testing.T) {
+	s := newStack(t, false)
+	session := s.signIn(t, "ani@contoh.id")
+	s.auth.Close()
+	rec := s.do(call{method: "POST", target: "/api/auth/logout", cookies: []*http.Cookie{session}})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500 so the client knows the server could not end the session", rec.Code)
+	}
+	if c := cookie(t, rec, "__Host-terka_session"); c.MaxAge >= 0 || c.Value != "" {
+		t.Fatalf("session cookie kept: %+v", c)
+	}
+}
+
+func TestPerIPLimitCountsAnIPv6Slash64AsOneAddress(t *testing.T) {
+	s := newStack(t, true)
+	send := func(i int) *httptest.ResponseRecorder {
+		email := fmt.Sprintf("v6orang%d@contoh.id", i)
+		s.remember(email)
+		rec := s.do(call{method: "POST", target: "/api/auth/email/request", body: requestBody(email),
+			header: map[string]string{"CF-Connecting-IP": fmt.Sprintf("2001:db8:1:2::%x", i+1)}})
+		if rec.Code == http.StatusAccepted {
+			s.remember(s.mail.lastCode(t))
+		}
+		return rec
+	}
+	for i := range 10 {
+		expect(t, send(i), http.StatusAccepted, "")
+	}
+	expect(t, send(10), http.StatusTooManyRequests, "rate_limited")
+}

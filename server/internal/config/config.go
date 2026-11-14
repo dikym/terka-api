@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -44,7 +45,7 @@ var localDefaults = map[string]string{
 var required = []string{
 	"TERKA_DATABASE_URL", "TERKA_AUTH_DATABASE_URL", "TERKA_PUBLIC_URL", "TERKA_AUTH_KEY",
 	"TERKA_GOOGLE_CLIENT_ID", "TERKA_GOOGLE_CLIENT_SECRET", "TERKA_TURNSTILE_SECRET",
-	"TERKA_TURNSTILE_HOSTNAMES", "TERKA_SMTP_URL", "TERKA_MAIL_FROM",
+	"TERKA_TURNSTILE_HOSTNAMES", "TERKA_SMTP_URL", "TERKA_MAIL_FROM", "TERKA_TRUST_CLOUDFLARE",
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -98,6 +99,9 @@ func Load(getenv func(string) string) (Config, error) {
 	key, err := base64.StdEncoding.DecodeString(get("TERKA_AUTH_KEY"))
 	if err != nil || len(key) < 32 {
 		return Config{}, errors.New("TERKA_AUTH_KEY must be at least 32 random bytes in standard base64 (openssl rand -base64 32)")
+	}
+	if envName != "local" && bytes.Equal(key, make([]byte, len(key))) {
+		return Config{}, errors.New("TERKA_AUTH_KEY is the all-zero local key; generate one with openssl rand -base64 32")
 	}
 	cfg.AuthKey = key
 

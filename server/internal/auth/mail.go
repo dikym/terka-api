@@ -44,7 +44,7 @@ type Mailer interface {
 // CodeMail is the sign-in email. The link carries the code in the fragment, which browsers never
 // send to a server, so it stays out of access logs.
 func CodeMail(publicURL, email, code string) (Mail, error) {
-	if len(code) != 6 || strings.Trim(code, "0123456789") != "" {
+	if !sixDigits(code) {
 		return Mail{}, errors.New("mail: code must be six digits")
 	}
 	data := struct{ Code, Link string }{

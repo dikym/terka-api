@@ -83,7 +83,7 @@ func TestStagingRefusesMissingAuthSettings(t *testing.T) {
 	for _, name := range []string{
 		"TERKA_DATABASE_URL", "TERKA_AUTH_DATABASE_URL", "TERKA_PUBLIC_URL", "TERKA_AUTH_KEY",
 		"TERKA_GOOGLE_CLIENT_ID", "TERKA_GOOGLE_CLIENT_SECRET", "TERKA_TURNSTILE_SECRET",
-		"TERKA_TURNSTILE_HOSTNAMES", "TERKA_SMTP_URL", "TERKA_MAIL_FROM",
+		"TERKA_TURNSTILE_HOSTNAMES", "TERKA_SMTP_URL", "TERKA_MAIL_FROM", "TERKA_TRUST_CLOUDFLARE",
 	} {
 		for _, envName := range []string{"staging", "production"} {
 			vars := maps.Clone(staging())
@@ -156,5 +156,13 @@ func TestStagingRefusesTurnstileTestSecrets(t *testing.T) {
 		if _, err := config.Load(env(vars)); err == nil || !strings.Contains(err.Error(), "TERKA_TURNSTILE_SECRET") {
 			t.Errorf("%s: err = %v, want one naming TERKA_TURNSTILE_SECRET", secret, err)
 		}
+	}
+}
+
+func TestStagingRefusesTheLocalZeroAuthKey(t *testing.T) {
+	vars := staging()
+	vars["TERKA_AUTH_KEY"] = base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if _, err := config.Load(env(vars)); err == nil || !strings.Contains(err.Error(), "TERKA_AUTH_KEY") {
+		t.Fatalf("all-zero key: err = %v, want one naming TERKA_AUTH_KEY", err)
 	}
 }

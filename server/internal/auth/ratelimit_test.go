@@ -52,3 +52,22 @@ func TestLimiterKeysAreIndependent(t *testing.T) {
 		t.Fatal("second key refused because of the first")
 	}
 }
+
+func TestIPKeyGroupsIPv6ByItsSlash64(t *testing.T) {
+	same := auth.IPKey("2001:db8:1:2:aaaa::1")
+	if auth.IPKey("2001:db8:1:2:bbbb:cccc:dddd:9") != same {
+		t.Fatal("two addresses in one /64 got different keys")
+	}
+	if auth.IPKey("2001:db8:1:3::1") == same {
+		t.Fatal("two /64 networks share a key")
+	}
+	for in, want := range map[string]string{
+		"203.0.113.7":        "203.0.113.7",
+		"::ffff:203.0.113.7": "203.0.113.7",
+		"not an address":     "not an address",
+	} {
+		if got := auth.IPKey(in); got != want {
+			t.Errorf("IPKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

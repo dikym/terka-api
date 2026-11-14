@@ -36,6 +36,10 @@ var (
 	ErrOtherBrowser = errors.New("code requested in another browser")
 )
 
+func sixDigits(code string) bool {
+	return len(code) == 6 && strings.Trim(code, "0123456789") == ""
+}
+
 // RetryAfter is carried by ErrTooSoon and ErrLocked: how long until trying again can work.
 type RetryAfter interface{ RetryAfter() time.Duration }
 
@@ -150,7 +154,8 @@ func (e *EmailCodes) Request(ctx context.Context, email, turnstile, ip, oldBindi
 	// The code is already stored, so a failed send answers like a sent one; the person asks again.
 	mail, err := CodeMail(e.PublicURL, addr, code)
 	if err == nil {
-		err = e.Mailer.Send(ctx, mail)
+		// The code is stored and counted already; a caller who leaves must not cancel its email.
+		err = e.Mailer.Send(context.WithoutCancel(ctx), mail)
 	}
 	if err != nil {
 		// Mail servers echo the recipient in their errors.
@@ -167,6 +172,11 @@ func (e *EmailCodes) Verify(ctx context.Context, email, code, binding string) (s
 	}
 	addr, err := NormalizeEmail(email)
 	if err != nil {
+		return "", Session{}, ErrInvalid
+	}
+	// A typo or a stray space is not a guess at the code, so it costs none of the tries.
+	code = strings.TrimSpace(code)
+	if !sixDigits(code) {
 		return "", Session{}, ErrInvalid
 	}
 	mailbox := Mailbox(addr)

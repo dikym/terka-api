@@ -24,6 +24,8 @@ func TestNormalizeEmailRejects(t *testing.T) {
 		"a@",
 		"a@@b.co",
 		"a@b@c.co",
+		"+terka@contoh.id",
+		"+@contoh.id",
 		"a b@c.co",
 		"a@b.co\r\nBcc: x@y.co",
 		"a\n@b.co",
