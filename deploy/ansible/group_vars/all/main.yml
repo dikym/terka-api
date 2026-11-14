@@ -1,5 +1,7 @@
 ---
 # The owner's login: key only, passwordless sudo.
+# The default reads the key of the machine running Ansible. On the VPS that is the wrong key and
+# locks the owner out, so pass the laptop's public key with -e admin_ssh_public_key=...
 admin_user: terka-admin
 admin_ssh_public_key: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub') }}"
 

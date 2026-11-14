@@ -5,7 +5,8 @@ infrastruktur VPS-nya. UI ada di repo `terka-web`. Repo `terka` (Next.js + Supab
 sebagai jalur cadangan.
 
 Desain dan daftar tugas (lokal, tidak di-commit): `docs/superpowers/specs/` dan
-`docs/superpowers/plans/2026-11-14-rewrite-tasks-api.md`. Runbook: `docs/runbooks/`.
+`docs/superpowers/plans/2026-11-14-rewrite-tasks-api.md`. Runbook: `docs/runbooks/`. Menyiapkan VPS: `docs/runbooks/deploy.md`, tiap langkahnya bertanda
+**[Laptop]** atau **[VPS]**.
 
 ## Struktur
 

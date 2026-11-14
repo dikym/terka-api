@@ -2,55 +2,120 @@
 
 VPS: Tencent Cloud Lighthouse, region Singapura, 2 vCPU, 2 GB RAM, 40 GB SSD.
 
+## Laptop dan VPS
+
+Setiap langkah di runbook ini diberi tanda tempat mengerjakannya:
+
+- **[Laptop]**: terminal atau browser di laptop Anda.
+- **[VPS]**: terminal di VPS, lewat `ssh ubuntu@<ip-vps>` (sebelum jalan pertama selesai) atau
+  `ssh terka-admin@<ip-vps>` (sesudahnya).
+
+| Tugas | Tempat |
+| --- | --- |
+| Menyalin `deploy/` ke VPS (`rsync`), mengubah kode, push ke `main` | Laptop |
+| Membuat token GHCR, kunci CI, widget Turnstile, OAuth Google, domain Resend, pengaturan Cloudflare dan Lighthouse (browser) | Laptop |
+| Menguji login SSH, `curl` dan `dig` dari luar | Laptop |
+| Memasang Ansible, membuat dan mengedit vault, menjalankan playbook | VPS |
+| Menyalakan Postgres, memasang sertifikat asal, menyalakan Caddy | VPS |
+| Deploy manual dan rollback | VPS |
+
+Ansible tidak perlu dipasang di laptop.
+
 ## Menyiapkan VPS
 
-Dikerjakan dari laptop pemilik, di `deploy/ansible/`.
+Ubuntu 26.04, login awal `ssh ubuntu@<ip-vps>`. Ansible dipasang dan dijalankan **di VPS sendiri**
+(`ansible_connection=local`), bukan dari laptop. Laptop hanya dipakai untuk menyalin berkas dan
+menguji login.
+
+Docker boleh sudah terpasang. Playbook menambah repositori resmi Docker (suite `resolute`) dan
+memasang paketnya; yang sudah ada tidak dihapus. Jika `apt update` mengeluh soal `Signed-By` ganda,
+hapus berkas repositori Docker lama di `/etc/apt/sources.list.d/` yang dibuat saat pemasangan awal.
 
 ### Sekali saja
 
-1. Pasang Ansible: `brew install ansible` (paket lengkap; sudah membawa `ansible.posix` dan
-   `community.general`). Dengan `ansible-core` saja, jalankan juga
-   `ansible-galaxy collection install -r requirements.yml`.
-2. Pastikan ada kunci SSH `~/.ssh/id_ed25519.pub`. Kunci lain: ubah `admin_ssh_public_key` di
-   `group_vars/all/main.yml`.
-3. Buat token GitHub (classic) dengan izin **`read:packages` saja**, untuk menarik image dari GHCR.
-4. Buat vault: `ansible-vault create group_vars/all/vault.yml`, isi sesuai `vault.example.yml`.
-   Setiap kata sandi dibuat dengan `openssl rand -hex 24`. Simpan kata sandi vault di pengelola
-   kata sandi, bukan di repo.
-5. Salin `inventory.example.ini` ke `inventory.ini` dan isi alamat VPS.
+1. **[Laptop]**, siapkan kunci SSH yang akan menjadi login `terka-admin`, dan token GitHub:
+   ```sh
+   cat ~/.ssh/id_ed25519.pub
+   ```
+   Catat hasilnya (satu baris, `ssh-ed25519 AAAA... komentar`). Kunci ini wajib kunci laptop, bukan
+   kunci VPS: playbook mematikan login password dan `root`, jadi kunci yang salah mengunci Anda
+   dari luar. Lalu buat token GitHub (classic) dengan izin **`read:packages` saja**, untuk menarik
+   image dari GHCR.
+2. **[Laptop]**, salin folder `deploy/` ke VPS (dari root repo `terka-api`). Playbook membaca
+   berkas compose dari `deploy/`, jadi seluruh folder harus ikut:
+   ```sh
+   rsync -av --exclude inventory.ini deploy/ ubuntu@<ip-vps>:~/terka-api/deploy/
+   ```
+   Cara ini menjaga token GitHub tetap di luar VPS. Ulangi perintah yang sama setiap kali berkas di
+   `deploy/` berubah.
+3. **[VPS]**, pasang Ansible:
+   ```sh
+   ssh ubuntu@<ip-vps>   # dari laptop; perintah berikutnya jalan di VPS
+   sudo apt update && sudo apt install -y ansible
+   ansible --version
+   ```
+   Paket `ansible` dari Ubuntu sudah membawa `ansible.posix` dan `community.general`. Pemeriksaan:
+   `ansible-galaxy collection list | grep -E 'ansible.posix|community.general'`. Jika kosong,
+   jalankan `ansible-galaxy collection install -r requirements.yml`.
+4. **[VPS]**, siapkan inventory dan vault:
+   ```sh
+   cd ~/terka-api/deploy/ansible
+   cp inventory.example.ini inventory.ini
+   ansible-vault create group_vars/all/vault.yml
+   ```
+   Isi vault sesuai `vault.example.yml`. Setiap kata sandi dibuat dengan `openssl rand -hex 24`.
+   Simpan kata sandi vault di pengelola kata sandi, bukan di repo. Jika `vault.yml` sudah dibuat di
+   laptop, langkah 2 sudah menyalinnya; lewati `ansible-vault create`.
+   Nilai Google, Turnstile, dan Resend boleh diisi placeholder dulu, lalu diganti nanti dengan
+   `ansible-vault edit group_vars/all/vault.yml` (lihat bagian Login).
 
 ### Jalan pertama
 
-Masuk sebagai pengguna bawaan image (`ubuntu` di Lighthouse, atau `root`):
+**[VPS]**, sebagai `ubuntu`, dalam `~/terka-api/deploy/ansible`:
 
 ```sh
-ansible-playbook site.yml --ask-vault-pass
+ADMIN_KEY='ssh-ed25519 AAAA... komentar'   # kunci publik laptop dari langkah 1
+ansible-playbook site.yml --ask-vault-pass -e "admin_ssh_public_key='$ADMIN_KEY'"
 ```
 
-Playbook membuat pengguna admin (`terka-admin`) dengan kunci Anda, lalu di akhir mematikan login
-password dan login `root`. Sebelum menutup sesi lama, buka terminal baru dan pastikan
-`ssh terka-admin@<vps>` berhasil.
+Pengguna `ubuntu` di Lighthouse punya sudo tanpa kata sandi. Jika tidak, tambahkan
+`--ask-become-pass`.
+Playbook membuat pengguna admin (`terka-admin`) dengan kunci laptop Anda, lalu di akhir mematikan
+login password dan login `root`. **Jangan menutup sesi SSH ini.** **[Laptop]** Buka terminal baru
+dan pastikan ini berhasil:
+
+```sh
+ssh terka-admin@<ip-vps>
+```
+
+Jika gagal, perbaiki dari sesi `ubuntu` yang masih terbuka (`/home/terka-admin/.ssh/authorized_keys`).
+Jika sesi sudah tertutup, masuk lewat console web Lighthouse.
 
 ### Jalan berikutnya
 
-Ganti `ansible_user` di `inventory.ini` menjadi `terka-admin`, lalu jalankan perintah yang sama.
-Jalan kedua tanpa perubahan apa pun harus berakhir dengan `changed=0`.
+Perintah yang sama, lagi-lagi dari VPS dan `-e admin_ssh_public_key` selalu disertakan (VPS tidak
+punya `~/.ssh/id_ed25519.pub`, nilai bawaannya akan gagal). Jalan kedua tanpa perubahan apa pun
+harus berakhir dengan `changed=0`. Setelah mengubah berkas di `deploy/`, jalankan dulu `rsync` di
+langkah 2 dari laptop.
 
 ### Pemeriksaan
 
+**[Laptop]**:
+
 ```sh
-ssh terka-admin@<vps> 'swapon --show; free -m; docker compose version; sudo stat -c %a /opt/terka/staging/.env'
-ssh root@<vps>                                                             # harus ditolak
-ssh -o PasswordAuthentication=yes -o PubkeyAuthentication=no deploy@<vps>  # harus ditolak
+ssh terka-admin@<ip-vps> 'swapon --show; free -m; docker compose version; sudo stat -c %a /opt/terka/staging/.env'
+ssh root@<ip-vps>                                                             # harus ditolak
+ssh -o PasswordAuthentication=yes -o PubkeyAuthentication=no deploy@<ip-vps>  # harus ditolak
 ```
 
 Harapan: swap 2G, Docker Compose terpasang, `.env` bermode `600`.
 
 ## Postgres dan database lingkungan
 
-Setelah playbook jalan, masuk sebagai `terka-admin` lalu pindah ke pengguna `deploy`:
+**[VPS]** Setelah playbook jalan, masuk sebagai `terka-admin` lalu pindah ke pengguna `deploy`:
 
 ```sh
+ssh terka-admin@<ip-vps>   # dari laptop
 sudo -iu deploy
 docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d --wait postgres
 set -a; . /opt/terka/staging/db.env; set +a
@@ -73,9 +138,16 @@ observability dipasang.
 
 ## Login
 
-Server menolak mulai di staging tanpa semua pengaturan login. Siapkan sekali per lingkungan, lalu
-masukkan ke vault (`ansible-vault edit deploy/ansible/group_vars/all/vault.yml`; bentuknya di
-`vault.example.yml`) dan jalankan ulang playbook:
+Server menolak mulai di staging tanpa semua pengaturan login. Siapkan sekali per lingkungan.
+Nilainya dibuat di **[Laptop]** (browser dan terminal), lalu dimasukkan ke vault dan diterapkan di
+**[VPS]**, dalam `~/terka-api/deploy/ansible`:
+
+```sh
+ansible-vault edit group_vars/all/vault.yml
+ansible-playbook site.yml --ask-vault-pass -e "admin_ssh_public_key='$ADMIN_KEY'"
+```
+
+Bentuk vault ada di `vault.example.yml`. Nilai yang dibuat:
 
 - **Kunci auth:** `openssl rand -base64 32` → `vault_staging_auth_key`. Satu kunci per lingkungan.
   Mengganti kunci membatalkan kode email dan login Google yang sedang berjalan, tidak sesi yang
@@ -91,7 +163,7 @@ masukkan ke vault (`ansible-vault edit deploy/ansible/group_vars/all/vault.yml`;
   `vault_smtp_url: smtp+starttls://resend:<api key>@smtp.resend.com:587`. Pengirim:
   `Terka <no-reply@terka.my.id>`.
 
-Pemeriksaan setelah deploy:
+Pemeriksaan setelah deploy, **[Laptop]**:
 
 ```sh
 curl -s https://staging.terka.my.id/api/auth/session        # 401 {"code":"signed_out",...}
@@ -107,8 +179,8 @@ Caddy tepi dan container web sama-sama memakai image dasar publik `ghcr.io/dikym
 Caddy rilis resmi yang dibangun ulang dengan modul yang sudah ditambal. Sumbernya
 `deploy/caddy/Dockerfile`, versinya `deploy/caddy/VERSION` (misalnya `2.11.9-p1`).
 
-Menyalakan Caddy tepi setelah sertifikat asal terpasang (`docs/runbooks/cloudflare.md` langkah 4),
-sebagai `deploy`:
+**[VPS]** Menyalakan Caddy tepi setelah sertifikat asal terpasang (`docs/runbooks/cloudflare.md`
+langkah 4), sebagai `deploy`:
 
 ```sh
 docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d caddy
@@ -118,7 +190,7 @@ Selama Caddy dimulai ulang, situs tidak bisa diakses beberapa detik.
 
 ### Sekali saja, setelah push pertama `terka-api`
 
-Workflow `caddy` menerbitkan image dasar. GitHub membuat paket baru sebagai privat; ubah sekali di
+**[Laptop]** (browser). Workflow `caddy` menerbitkan image dasar. GitHub membuat paket baru sebagai privat; ubah sekali di
 GitHub → Packages → `terka-caddy` → Package settings → Change visibility → **Public**. Sebelum itu,
 CI `terka-web` dan VPS tidak bisa menarik image-nya. Isinya hanya Caddy, tanpa kode atau rahasia
 Terka.
@@ -128,12 +200,13 @@ Terka.
 Workflow `caddy` memindai image dasar setiap malam (04.00 WITA). Kalau gagal, GitHub mengirim
 notifikasi; deploy API dan UI tidak terhalang. Untuk menanggapinya:
 
-1. Di `deploy/caddy/Dockerfile`, tambah atau naikkan `--replace` modul yang disebut pemindai.
-2. Naikkan tingkat tambalan di `deploy/caddy/VERSION` (`2.11.9-p1` → `2.11.9-p2`) dan tag di
+1. **[Laptop]** Di `deploy/caddy/Dockerfile`, tambah atau naikkan `--replace` modul yang disebut pemindai.
+2. **[Laptop]** Naikkan tingkat tambalan di `deploy/caddy/VERSION` (`2.11.9-p1` → `2.11.9-p2`) dan tag di
    `deploy/compose.infra.yaml`. `caddy_version_test.sh` gagal kalau keduanya tidak cocok.
-3. Push ke `main`; workflow `caddy` menerbitkan tag baru. Tag lama tidak pernah ditimpa.
-4. Di `terka-web/Dockerfile`, naikkan tag `FROM ghcr.io/dikym/terka-caddy:…` dan push.
-5. Di VPS: jalankan playbook (menyalin compose baru), lalu perintah `up -d caddy` di atas.
+3. **[Laptop]** Push ke `main`; workflow `caddy` menerbitkan tag baru. Tag lama tidak pernah ditimpa.
+4. **[Laptop]** Di `terka-web/Dockerfile`, naikkan tag `FROM ghcr.io/dikym/terka-caddy:…` dan push.
+5. **[Laptop]** `rsync` ulang `deploy/` ke VPS. **[VPS]** Jalankan playbook (menyalin compose baru),
+   lalu perintah `up -d caddy` di atas.
 
 ### Rilis Caddy baru
 
@@ -154,8 +227,8 @@ Belum ada pemeriksaan otomatis; aturan ini dijaga dengan disiplin sampai E2E ada
 ## Deploy manual
 
 Image harus sudah ada di GHCR dengan tag SHA commit 40 karakter (dibuat CI repo masing-masing pada
-push ke `main`): `ghcr.io/dikym/terka-api:<sha>` atau `ghcr.io/dikym/terka-web:<sha>`. Sebagai
-`terka-admin` di VPS:
+push ke `main`): `ghcr.io/dikym/terka-api:<sha>` atau `ghcr.io/dikym/terka-web:<sha>`.
+**[VPS]**, sebagai `terka-admin`:
 
 ```sh
 sudo -iu deploy /opt/terka/bin/deploy.sh api staging <sha>
@@ -168,12 +241,12 @@ Kode keluar: `0` berhasil, `1` tarik image atau migration gagal (versi yang jala
 hanya dijalankan untuk `api`.
 
 Versi yang sedang jalan: `/opt/terka/<env>/api.current` dan `/opt/terka/<env>/web.current`.
-Dari luar: `curl -s https://staging.terka.my.id/healthz` (API) dan
+**[Laptop]** Dari luar: `curl -s https://staging.terka.my.id/healthz` (API) dan
 `curl -s https://staging.terka.my.id/_app/version.json` (UI).
 
 ## Rollback manual
 
-Deploy ulang SHA sebelumnya dengan perintah yang sama. Untuk API ini aman karena migration hanya
+**[VPS]** Deploy ulang SHA sebelumnya dengan perintah yang sama. Untuk API ini aman karena migration hanya
 menambah; image lama mengabaikan versi migration yang tidak dikenalnya. Migration tidak pernah
 dibatalkan.
 
@@ -190,13 +263,13 @@ pada push ke `main`. Produksi hanya lewat "Run workflow" dengan SHA, dan menungg
 
 ### Menyiapkan sekali
 
-1. Buat dua kunci khusus CI, tanpa passphrase, di laptop:
+1. **[Laptop]** Buat dua kunci khusus CI, tanpa passphrase:
    ```sh
    ssh-keygen -t ed25519 -N '' -C terka-ci-api -f ~/terka-ci-api
    ssh-keygen -t ed25519 -N '' -C terka-ci-web -f ~/terka-ci-web
    ```
-2. Isi `deploy_ci_public_keys.api` dan `deploy_ci_public_keys.web` di
-   `deploy/ansible/group_vars/all/main.yml` dengan isi berkas `.pub`-nya, lalu jalankan playbook lagi.
+2. **[Laptop]** Isi `deploy_ci_public_keys.api` dan `deploy_ci_public_keys.web` di
+   `deploy/ansible/group_vars/all/main.yml` dengan isi berkas `.pub`-nya, salin ulang `deploy/` ke VPS dengan `rsync`, lalu **[VPS]** jalankan playbook lagi.
    Kunci `api` hanya bisa menjalankan `deploy.sh api`, kunci `web` hanya `deploy.sh web`.
 3. Ambil sidik kunci host: `ssh-keyscan -t ed25519 <IP VPS>`.
 4. Di **kedua** repo GitHub → Settings → Environments:
