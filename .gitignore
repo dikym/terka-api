@@ -8,3 +8,6 @@ deploy/ansible/inventory.ini
 .DS_Store
 .idea/
 /.edge-test.*/
+
+# planning docs
+docs/superpowers/
