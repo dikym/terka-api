@@ -115,6 +115,7 @@
   ansible.builtin.copy:
     dest: /home/deploy/.ssh/authorized_keys
     content: |
+      # Written by Ansible: one line per CI deploy key.
       {% for service, key in deploy_ci_public_keys.items() if key | length > 0 %}
       restrict,command="{{ terka_root }}/bin/deploy.sh {{ service }}" {{ key }}
       {% endfor %}
