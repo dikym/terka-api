@@ -56,6 +56,7 @@
     content: |
       OWNER_PASSWORD={{ terka_db_passwords[item].owner }}
       APP_PASSWORD={{ terka_db_passwords[item].app }}
+      AUTH_PASSWORD={{ terka_db_passwords[item].auth }}
     owner: deploy
     group: deploy
     mode: "0600"

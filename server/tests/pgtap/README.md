@@ -11,7 +11,7 @@ Berkas di sini disalin dari `supabase/tests/database/` di repo `terka`. Yang ber
 | Berkas | Perubahan | Alasan |
 | --- | --- | --- |
 | `00000_helpers.sql` | `tests.create_user` menyisipkan `(id, email)` saja | `auth.users` di sini tidak punya `aud` dan `role` |
-| `00000_helpers.sql` | `tests.add_session` menyisipkan `(id, user_id, token_hash, expires_at)` | Kolom `auth.sessions` milik sendiri |
+| `00000_helpers.sql` | `tests.add_session` menyisipkan `(id, user_id, token_hash, expires_at, absolute_expires_at, method)` | Kolom `auth.sessions` milik sendiri |
 | `performance.test.sql` | Sisipan ke `auth.users` memakai `(id, email)` saja | Sama dengan di atas |
 | `rules.test.sql` | Asersi `cron.job` dihapus; `plan(53)` menjadi `plan(52)` | Pembersihan terjadwal dijalankan server Go |
 | `rules.test.sql` | "an accepted policy version cannot be deleted" mengharapkan `23001`, bukan `23503` | PostgreSQL 18 melaporkan pelanggaran `on delete restrict` sebagai `restrict_violation` (`23001`); Postgres 17 di Supabase memakai `23503`. Penghapusan tetap ditolak |
@@ -19,5 +19,8 @@ Berkas di sini disalin dari `supabase/tests/database/` di repo `terka`. Yang ber
 `passwordless.test.sql` dan `sync_signal.test.sql` tidak disalin, karena migration yang diujinya
 tidak ada di sini. Perilakunya diuji ulang sebagai tes Go saat auth dan SSE dibangun.
 
-Harness memasang pgTAP di skema `extensions` dan memberi `usage` ke `anon` dan `authenticated`,
-seperti di Supabase, karena tes memanggil fungsi pgTAP setelah berpindah role.
+Harness memasang pgTAP di skema `extensions` dan memberi `usage` ke `anon`, `authenticated`, dan
+`terka_auth`, seperti di Supabase, karena tes memanggil fungsi pgTAP setelah berpindah role.
+
+`auth_grants.test.sql` hanya ada di sini: ia memastikan tabel `auth.*` hanya terbuka bagi
+`terka_auth`.

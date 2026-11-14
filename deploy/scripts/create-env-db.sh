@@ -2,23 +2,25 @@
 # Creates, or brings up to date, the database and login roles of one environment:
 #   terka_<env>         the database
 #   terka_<env>_owner   owns the schema; used by `terka migrate`; not a superuser
-#   terka_<env>_app     the server's login; noinherit, member of anon and authenticated
+#   terka_<env>_app     the server's login for users; noinherit, member of anon and authenticated
+#   terka_<env>_auth    the server's login for sign-in; noinherit, member of terka_auth only
 # Roles are cluster-wide and environments share the cluster, so each one only reaches its own database.
-# Safe to run again: it also resets both passwords to the given values.
+# Safe to run again: it also resets the passwords to the given values.
 #
-# Usage: OWNER_PASSWORD=… APP_PASSWORD=… create-env-db.sh <env>
+# Usage: OWNER_PASSWORD=… APP_PASSWORD=… AUTH_PASSWORD=… create-env-db.sh <env>
 # Talks to the postgres service of COMPOSE_FILE (default: the VPS infra stack).
 set -euo pipefail
 
 env_name=${1:-}
 if [[ ! $env_name =~ ^[a-z]+$ ]]; then
-	echo "usage: OWNER_PASSWORD=… APP_PASSWORD=… $0 <env>   (env: lowercase letters only)" >&2
+	echo "usage: OWNER_PASSWORD=… APP_PASSWORD=… AUTH_PASSWORD=… $0 <env>   (env: lowercase letters only)" >&2
 	exit 64
 fi
 : "${OWNER_PASSWORD:?OWNER_PASSWORD is required}"
 : "${APP_PASSWORD:?APP_PASSWORD is required}"
+: "${AUTH_PASSWORD:?AUTH_PASSWORD is required}"
 # Letters and digits only (openssl rand -hex 24), so the values need no quoting in SQL or URLs.
-for password in "$OWNER_PASSWORD" "$APP_PASSWORD"; do
+for password in "$OWNER_PASSWORD" "$APP_PASSWORD" "$AUTH_PASSWORD"; do
 	if [[ ! $password =~ ^[A-Za-z0-9]{16,}$ ]]; then
 		echo "passwords must be at least 16 letters or digits" >&2
 		exit 64
@@ -30,11 +32,13 @@ export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-terka-infra}
 db=terka_$env_name
 owner=${db}_owner
 app=${db}_app
+auth=${db}_auth
 
 # Passwords travel on stdin, never in a command line that other processes can read.
 docker compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 \\set owner_password '$OWNER_PASSWORD'
 \\set app_password '$APP_PASSWORD'
+\\set auth_password '$AUTH_PASSWORD'
 do \$\$
 begin
 	create role anon nologin;
@@ -47,19 +51,29 @@ exception when duplicate_object then null;
 end \$\$;
 do \$\$
 begin
+	create role terka_auth nologin;
+exception when duplicate_object then null;
+end \$\$;
+do \$\$
+begin
 	if not exists (select from pg_roles where rolname = '$owner') then
 		create role $owner login;
 	end if;
 	if not exists (select from pg_roles where rolname = '$app') then
 		create role $app login noinherit;
 	end if;
+	if not exists (select from pg_roles where rolname = '$auth') then
+		create role $auth login noinherit;
+	end if;
 end \$\$;
 alter role $owner password :'owner_password';
 alter role $app noinherit password :'app_password';
+alter role $auth noinherit password :'auth_password';
 grant anon, authenticated to $app;
+grant terka_auth to $auth;
 select 'create database $db owner $owner' where not exists (select from pg_database where datname = '$db')
 \\gexec
 revoke connect on database $db from public;
-grant connect on database $db to $app;
+grant connect on database $db to $app, $auth;
 SQL
-echo "database $db is ready (roles $owner, $app)"
+echo "database $db is ready (roles $owner, $app, $auth)"

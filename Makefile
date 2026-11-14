@@ -7,6 +7,7 @@ LOCAL_COMPOSE := docker compose -f deploy/compose.local.yaml
 # Local only; the terka_dev database never leaves this machine.
 DEV_OWNER_PASSWORD := localdevonlyownerpw
 DEV_APP_PASSWORD := localdevonlyapppw1
+DEV_AUTH_PASSWORD := localdevonlyauthpw1
 DEV_DB := localhost:5433/terka_dev
 export TERKA_TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5433/postgres
 
@@ -20,12 +21,13 @@ db: ## start the local Postgres used by tests (port 5433)
 
 dev: db ## run the api on :8080 with live reload, against the terka_dev database
 	COMPOSE_FILE=deploy/compose.dev.yaml COMPOSE_PROJECT_NAME=terka-dev \
-		OWNER_PASSWORD=$(DEV_OWNER_PASSWORD) APP_PASSWORD=$(DEV_APP_PASSWORD) \
+		OWNER_PASSWORD=$(DEV_OWNER_PASSWORD) APP_PASSWORD=$(DEV_APP_PASSWORD) AUTH_PASSWORD=$(DEV_AUTH_PASSWORD) \
 		bash deploy/scripts/create-env-db.sh dev
 	cd server && TERKA_MIGRATE_DATABASE_URL=postgres://terka_dev_owner:$(DEV_OWNER_PASSWORD)@$(DEV_DB) \
 		go run ./cmd/terka migrate
 	cd server && TERKA_ENV=local TERKA_ADDR=:8080 \
-		TERKA_DATABASE_URL=postgres://terka_dev_app:$(DEV_APP_PASSWORD)@$(DEV_DB) go tool air
+		TERKA_DATABASE_URL=postgres://terka_dev_app:$(DEV_APP_PASSWORD)@$(DEV_DB) \
+		TERKA_AUTH_DATABASE_URL=postgres://terka_dev_auth:$(DEV_AUTH_PASSWORD)@$(DEV_DB) go tool air
 
 caddy: ## build the shared Caddy base image under its published tag
 	docker build -t ghcr.io/dikym/terka-caddy:$$(cat deploy/caddy/VERSION) deploy/caddy

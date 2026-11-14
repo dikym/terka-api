@@ -15,10 +15,11 @@ import (
 )
 
 // DB holds connection strings for one test database: OwnerURL connects as the role that owns the
-// schema (not a superuser), AppURL as the server's login role.
+// schema (not a superuser), AppURL as the server's login for users, AuthURL as its login for sign-in.
 type DB struct {
 	OwnerURL string
 	AppURL   string
+	AuthURL  string
 }
 
 const ensureGroupRoles = `
@@ -30,6 +31,11 @@ end $$;
 do $$
 begin
 	create role authenticated nologin;
+exception when duplicate_object or unique_violation then null;
+end $$;
+do $$
+begin
+	create role terka_auth nologin;
 exception when duplicate_object or unique_violation then null;
 end $$;`
 
@@ -49,7 +55,7 @@ func New(t *testing.T) DB {
 
 	suffix := randomSuffix(t)
 	name := "t_" + suffix
-	owner, app := name+"_owner", name+"_app"
+	owner, app, auth := name+"_owner", name+"_app", name+"_auth"
 	password := randomSuffix(t)
 
 	// Roles are cluster-wide, so every name here is unique to this test and dropped with it.
@@ -58,9 +64,11 @@ func New(t *testing.T) DB {
 		"create role " + owner + " login password '" + password + "'",
 		"create role " + app + " login noinherit password '" + password + "'",
 		"grant anon, authenticated to " + app,
+		"create role " + auth + " login noinherit password '" + password + "'",
+		"grant terka_auth to " + auth,
 		"create database " + name + " owner " + owner,
 		"revoke connect on database " + name + " from public",
-		"grant connect on database " + name + " to " + app,
+		"grant connect on database " + name + " to " + app + ", " + auth,
 	}
 	for _, sql := range statements {
 		if _, err := conn.Exec(ctx, sql); err != nil {
@@ -79,6 +87,7 @@ func New(t *testing.T) DB {
 		for _, sql := range []string{
 			"drop database if exists " + name + " with (force)",
 			"drop role if exists " + app,
+			"drop role if exists " + auth,
 			"drop role if exists " + owner,
 		} {
 			if _, err := conn.Exec(ctx, sql); err != nil {
@@ -90,6 +99,7 @@ func New(t *testing.T) DB {
 	return DB{
 		OwnerURL: withLogin(admin, owner, password, name),
 		AppURL:   withLogin(admin, app, password, name),
+		AuthURL:  withLogin(admin, auth, password, name),
 	}
 }
 

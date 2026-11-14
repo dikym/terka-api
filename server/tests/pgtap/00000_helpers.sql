@@ -74,8 +74,8 @@ language plpgsql as $$
 declare
 	id uuid := gen_random_uuid();
 begin
-	insert into auth.sessions (id, user_id, token_hash, expires_at)
-	values (id, owner, sha256(id::text::bytea), now() + interval '90 days');
+	insert into auth.sessions (id, user_id, token_hash, expires_at, absolute_expires_at, method)
+	values (id, owner, sha256(id::text::bytea), now() + interval '90 days', now() + interval '400 days', 'email');
 	return id;
 end;
 $$;

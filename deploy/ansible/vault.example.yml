@@ -7,3 +7,4 @@ vault_ghcr_token: a-classic-token-with-read-packages-only
 vault_postgres_superuser_password: replace-me
 vault_staging_owner_password: replace-me
 vault_staging_app_password: replace-me
+vault_staging_auth_password: replace-me

@@ -14,7 +14,9 @@ psql() { "${compose[@]}" exec -T postgres psql -q -v ON_ERROR_STOP=1 -U postgres
 psql -d postgres -c "drop database if exists $db with (force)" -c "create database $db"
 # The helper file installs pgTAP into schema extensions, as on Supabase, and tests call it after
 # switching to anon or authenticated.
-psql -d "$db" -c "create schema extensions" -c "grant usage on schema extensions to anon, authenticated" \
+# A cluster created before terka_auth existed lacks it; the auth migration grants to it.
+psql -d postgres -c "do \$\$ begin create role terka_auth nologin; exception when duplicate_object then null; end \$\$"
+psql -d "$db" -c "create schema extensions" -c "grant usage on schema extensions to anon, authenticated, terka_auth" \
 	-c "alter database $db set search_path = \"\$user\", public, extensions"
 TERKA_MIGRATE_DATABASE_URL="${base%/*}/$db" go -C server run ./cmd/terka migrate >/dev/null
 # The helper file commits its functions; every test file rolls back.

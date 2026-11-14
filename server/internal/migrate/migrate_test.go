@@ -2,6 +2,7 @@ package migrate_test
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"regexp"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/dikym/terka-api/server/internal/dbtest"
 	"github.com/dikym/terka-api/server/internal/migrate"
@@ -253,5 +255,38 @@ func TestAppRoleCannotChangeTheSchema(t *testing.T) {
 	conn := connect(t, db.AppURL)
 	if _, err := conn.Exec(context.Background(), "create table public.x ()"); err == nil {
 		t.Fatal("the app role created a table; it must not own or change the schema")
+	}
+}
+
+func TestAppLoginCannotBecomeTheAuthRole(t *testing.T) {
+	db := dbtest.New(t)
+	if _, err := migrate.Apply(context.Background(), connect(t, db.OwnerURL), migrations.Files); err != nil {
+		t.Fatal(err)
+	}
+	// SQL smuggled into an app transaction must not be able to switch to the role that writes sessions.
+	assertSetRoleDenied(t, connect(t, db.AppURL), "terka_auth")
+}
+
+func TestAuthLoginCannotBecomeAUser(t *testing.T) {
+	db := dbtest.New(t)
+	if _, err := migrate.Apply(context.Background(), connect(t, db.OwnerURL), migrations.Files); err != nil {
+		t.Fatal(err)
+	}
+	assertSetRoleDenied(t, connect(t, db.AuthURL), "authenticated")
+	assertSetRoleDenied(t, connect(t, db.AuthURL), "anon")
+}
+
+func assertSetRoleDenied(t *testing.T, conn *pgx.Conn, role string) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, "set local role "+role)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+		t.Fatalf("set role %s: err = %v, want permission denied (42501)", role, err)
 	}
 }

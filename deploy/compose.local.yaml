@@ -44,6 +44,7 @@ services:
     environment:
       TERKA_ENV: local
       TERKA_DATABASE_URL: postgres://terka_local_app:localonlyapppw123@postgres:5432/terka_local
+      TERKA_AUTH_DATABASE_URL: postgres://terka_local_auth:localonlyauthpw123@postgres:5432/terka_local
     depends_on:
       migrate:
         condition: service_completed_successfully
