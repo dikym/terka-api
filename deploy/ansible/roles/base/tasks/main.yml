@@ -58,37 +58,35 @@
   ansible.builtin.command: /usr/sbin/sshd -t
   changed_when: false
 
-- name: Create the swap file
-  ansible.builtin.command: fallocate -l {{ swap_size_mb }}M /swapfile
-  args:
-    creates: /swapfile
-
-- name: Restrict the swap file
-  ansible.builtin.file:
-    path: /swapfile
-    mode: "0600"
-
-# Decided from the live state, not from "the file was just created": a run that died after
-# fallocate would otherwise leave an unformatted swap file that later runs never turn on.
+# Cloud images such as Lighthouse already ship a swap file; a second one only costs disk.
 - name: List the active swap
   ansible.builtin.command: swapon --show=NAME --noheadings
   register: base_active_swap
   changed_when: false
 
-- name: Format and turn on the swap file
-  when: "'/swapfile' not in base_active_swap.stdout_lines"
+# Decided from the live state, not from "the file was just created": a run that died after
+# fallocate leaves an unformatted file, and the next run still finds no swap and finishes it.
+- name: Create a swap file when the system has no swap
+  when: base_active_swap.stdout_lines | length == 0
   block:
+    - name: Allocate the swap file
+      ansible.builtin.command: fallocate -l {{ swap_size_mb }}M /swapfile
+      args:
+        creates: /swapfile
+    - name: Restrict the swap file
+      ansible.builtin.file:
+        path: /swapfile
+        mode: "0600"
     - name: Format the swap file
       ansible.builtin.command: mkswap /swapfile
       changed_when: true
     - name: Turn the swap on
       ansible.builtin.command: swapon /swapfile
       changed_when: true
-
-- name: Keep the swap after a reboot
-  ansible.builtin.lineinfile:
-    path: /etc/fstab
-    line: /swapfile none swap sw 0 0
+    - name: Keep the swap after a reboot
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: /swapfile none swap sw 0 0
 
 - name: Prefer memory over swap
   ansible.posix.sysctl:
