@@ -44,10 +44,14 @@ hapus berkas repositori Docker lama di `/etc/apt/sources.list.d/` yang dibuat sa
 2. **[Laptop]**, salin folder `deploy/` ke VPS (dari root repo `terka-api`). Playbook membaca
    berkas compose dari `deploy/`, jadi seluruh folder harus ikut:
    ```sh
+   ssh ubuntu@<ip-vps> 'mkdir -p ~/terka-api/deploy && chmod 700 ~/terka-api'
    rsync -av --exclude inventory.ini deploy/ ubuntu@<ip-vps>:~/terka-api/deploy/
    ```
-   Cara ini menjaga token GitHub tetap di luar VPS. Ulangi perintah yang sama setiap kali berkas di
-   `deploy/` berubah.
+   Baris pertama wajib: `rsync` hanya membuat folder terakhir tujuan (`deploy/`), bukan folder
+   induknya (`terka-api/`), dan `chmod 700` menutup folder dari pengguna lain di VPS karena isinya
+   `vault.yml` terenkripsi. Baris pertama cukup dijalankan sekali; ulangi hanya `rsync` setiap kali
+   berkas di `deploy/` berubah. Tanda `/` di akhir `deploy/` wajib ada. Hanya `deploy/` yang
+   disalin, bukan seluruh repo, sehingga token GitHub tidak ikut ke VPS.
 3. **[VPS]**, pasang Ansible:
    ```sh
    ssh ubuntu@<ip-vps>   # dari laptop; perintah berikutnya jalan di VPS
@@ -97,6 +101,13 @@ Perintah yang sama, lagi-lagi dari VPS dan `-e admin_ssh_public_key` selalu dise
 punya `~/.ssh/id_ed25519.pub`, nilai bawaannya akan gagal). Jalan kedua tanpa perubahan apa pun
 harus berakhir dengan `changed=0`. Setelah mengubah berkas di `deploy/`, jalankan dulu `rsync` di
 langkah 2 dari laptop.
+
+Salinan di `~/terka-api` milik `ubuntu` dan hanya dipakai saat playbook berjalan; yang dipakai
+saat runtime adalah `/opt/terka/`. Pengguna `ubuntu` tetap ada setelah jalan pertama, jadi cara
+termudah adalah terus menjalankan playbook sebagai `ubuntu`. Untuk menjalankannya sebagai
+`terka-admin`, salin `deploy/` ke home-nya (ulangi dua perintah di langkah 2 dengan
+`terka-admin@<ip-vps>`), karena home `ubuntu` tidak bisa dibaca `terka-admin`. Vault dan
+inventory ikut perlu disiapkan di salinan itu.
 
 ### Pemeriksaan
 
