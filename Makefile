@@ -17,8 +17,8 @@ export TERKA_TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5433/po
 help:
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
 
-db: ## start the local Postgres used by tests (port 5433)
-	$(DEV_COMPOSE) up -d --wait postgres
+db: ## start the local Postgres (port 5433) and Mailpit (http://localhost:8025) used by tests
+	$(DEV_COMPOSE) up -d --wait postgres mailpit
 
 dev: db ## run the api on :8080 with live reload, against the terka_dev database
 	COMPOSE_FILE=deploy/compose.dev.yaml COMPOSE_PROJECT_NAME=terka-dev \

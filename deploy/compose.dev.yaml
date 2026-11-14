@@ -1,4 +1,4 @@
-# Local development and CI database. Not used on the server.
+# Local development and CI database and mail catcher. Not used on the server.
 name: terka-dev
 
 services:
@@ -18,6 +18,21 @@ services:
     healthcheck:
       # Over TCP on purpose: the socket answers during first-run init, before the real server is up.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Catches every email the local server sends; read them at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    environment:
+      # The reverse lookup of each client costs seconds inside Docker and tells us nothing here.
+      MP_SMTP_DISABLE_RDNS: "true"
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
       interval: 2s
       timeout: 3s
       retries: 30

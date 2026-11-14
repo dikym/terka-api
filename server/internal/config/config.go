@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/dikym/terka-api/server/internal/auth"
 )
 
 // Config is what serve needs. The schema owner's URL is read only by the migrate command.
@@ -111,6 +113,9 @@ func Load(getenv func(string) string) (Config, error) {
 	// The parse error quotes the whole URL, password included, and this message ends up in logs.
 	if err != nil {
 		return Config{}, errors.New("TERKA_SMTP_URL is not a valid URL")
+	}
+	if envName != "local" && auth.IsTurnstileTestSecret(cfg.TurnstileSecret) {
+		return Config{}, errors.New("TERKA_TURNSTILE_SECRET is a Cloudflare test secret, which passes anyone")
 	}
 	if envName != "local" && smtp.Scheme != "smtp+starttls" {
 		return Config{}, errors.New("TERKA_SMTP_URL must use smtp+starttls:// outside the local environment")

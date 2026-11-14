@@ -30,7 +30,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: server/go.sum
       # A step, not a service container: the image is built from a Dockerfile in this repository.
-      - name: Start Postgres
+      - name: Start Postgres and Mailpit
         run: make db
       - name: Lint
         run: make lint

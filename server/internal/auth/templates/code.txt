@@ -1,0 +1,8 @@
+Masuk ke Terka
+
+Kode masuk: {{.Code}}
+
+Atau buka tautan ini di browser yang sama untuk masuk ke Terka:
+{{.Link}}
+
+Kode dan tautan berlaku 15 menit dan hanya bisa dipakai di browser tempat Anda memintanya. Abaikan email ini jika tidak meminta masuk.

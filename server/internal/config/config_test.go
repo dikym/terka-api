@@ -148,3 +148,13 @@ func TestBadSMTPURLErrorHidesTheCredentials(t *testing.T) {
 		t.Fatalf("err = %v, want one naming TERKA_SMTP_URL without the password", err)
 	}
 }
+
+func TestStagingRefusesTurnstileTestSecrets(t *testing.T) {
+	for _, secret := range []string{"1x0000000000000000000000000000000AA", "2x0000000000000000000000000000000AA", "3x0000000000000000000000000000000AA"} {
+		vars := staging()
+		vars["TERKA_TURNSTILE_SECRET"] = secret
+		if _, err := config.Load(env(vars)); err == nil || !strings.Contains(err.Error(), "TERKA_TURNSTILE_SECRET") {
+			t.Errorf("%s: err = %v, want one naming TERKA_TURNSTILE_SECRET", secret, err)
+		}
+	}
+}
