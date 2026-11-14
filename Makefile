@@ -2,6 +2,7 @@
 VERSION ?= $(shell git rev-parse HEAD 2>/dev/null || echo dev)
 # Run through go so the linter is built with this repo's Go version and pinned here.
 GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+SQLC ?= go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 DEV_COMPOSE := docker compose -f deploy/compose.dev.yaml
 LOCAL_COMPOSE := docker compose -f deploy/compose.local.yaml
 # Local only; the terka_dev database never leaves this machine.
@@ -11,7 +12,7 @@ DEV_AUTH_PASSWORD := localdevonlyauthpw1
 DEV_DB := localhost:5433/terka_dev
 export TERKA_TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5433/postgres
 
-.PHONY: help db dev caddy stack stack-down build image test pgtap lint
+.PHONY: help db dev caddy stack stack-down build image test pgtap lint sqlc
 
 help:
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -52,3 +53,6 @@ pgtap: db ## run the database tests against a fresh schema
 
 lint: ## format check, vet and lint the server
 	cd server && test -z "$$(gofmt -l .)" && go vet ./... && $(GOLANGCI) run
+
+sqlc: ## regenerate server/internal/store from server/queries
+	cd server && $(SQLC) generate
