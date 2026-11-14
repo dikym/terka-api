@@ -181,20 +181,21 @@ func (e *EmailCodes) Verify(ctx context.Context, email, code, binding string) (s
 		if err := q.LockMailbox(ctx, mailbox); err != nil {
 			return err
 		}
-		twentieth, err := q.TwentiethFailure(ctx, store.TwentiethFailureParams{Mailbox: mailbox, Since: now.Add(-lockWindow)})
-		if err == nil {
-			outcome = retry(ErrLocked, twentieth.Add(lockWindow).Sub(now))
-			return nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
 		live, err := q.LiveEmailCode(ctx, store.LiveEmailCodeParams{Email: addr, BindingHash: e.bindingHash(binding), Now: now})
 		if errors.Is(err, pgx.ErrNoRows) {
 			outcome = ErrInvalid
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+		// Checked only for the browser that holds a live code, so nobody else learns the mailbox is locked.
+		twentieth, err := q.TwentiethFailure(ctx, store.TwentiethFailureParams{Mailbox: mailbox, Since: now.Add(-lockWindow)})
+		if err == nil {
+			outcome = retry(ErrLocked, twentieth.Add(lockWindow).Sub(now))
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		if !hmac.Equal(live.CodeHmac, CodeMAC(e.Keys, addr, code)) {

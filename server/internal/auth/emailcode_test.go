@@ -551,3 +551,12 @@ func TestInvalidAddressIsRejectedBeforeAnythingElse(t *testing.T) {
 		t.Fatal("an invalid address reached Turnstile or the database")
 	}
 }
+
+func TestLockIsReportedOnlyToTheRequestingBrowser(t *testing.T) {
+	e := newCodesEnv(t)
+	e.fail(t, "ani@contoh.id", 4)
+	for _, binding := range []string{"made-up-binding", strings.Repeat("A", 43)} {
+		_, err := e.verify("ani@contoh.id", "123456", binding)
+		assertIs(t, "locked mailbox, binding of no request", err, auth.ErrInvalid)
+	}
+}
