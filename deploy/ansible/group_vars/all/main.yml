@@ -7,8 +7,8 @@ admin_ssh_public_key: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub'
 
 # Public halves of the CI deploy keys, one per repository. An empty value installs no key.
 deploy_ci_public_keys:
-  api: ""
-  web: ""
+  api: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIpgjLHLM7xiUpg6QeNqbOMe7vm+FSOOSnrCJvEHz9Zz terka-ci-api"
+  web: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDXJetqRi6WmyfK0LkQ6QL4YzFmxKGku9PfZ7+Hu3kFj terka-ci-web"
 
 terka_root: /opt/terka
 terka_environments:
