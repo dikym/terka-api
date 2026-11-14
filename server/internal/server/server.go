@@ -15,6 +15,8 @@ type Deps struct {
 	Env     string
 	Ping    func(context.Context) error
 	Logger  *slog.Logger
+	// Routes mounts the API endpoints next to the health checks.
+	Routes func(mux *http.ServeMux)
 }
 
 const pingTimeout = 2 * time.Second
@@ -37,7 +39,13 @@ func New(d Deps) http.Handler {
 	mux.Handle("/", httpx.Handle(func(http.ResponseWriter, *http.Request) error {
 		return &httpx.Error{Status: http.StatusNotFound, Code: "not_found", Message: "no such endpoint"}
 	}, d.Logger))
-	return httpx.Recover(accessLog(securityHeaders(mux, d.Env), d.Logger), d.Logger)
+	if d.Routes != nil {
+		d.Routes(mux)
+	}
+	// Browsers say where a request comes from; a write from another site is refused before any
+	// handler sees it, so a session cookie can never be spent by a page the user did not open.
+	guarded := http.NewCrossOriginProtection().Handler(mux)
+	return httpx.Recover(accessLog(securityHeaders(guarded, d.Env), d.Logger), d.Logger)
 }
 
 func securityHeaders(next http.Handler, env string) http.Handler {

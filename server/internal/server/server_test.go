@@ -126,3 +126,30 @@ func TestHSTSOutsideLocal(t *testing.T) {
 		}
 	}
 }
+
+func TestCrossOriginWritesAreRefused(t *testing.T) {
+	d := deps("local", up)
+	d.Routes = func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /api/x", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	}
+	h := server.New(d)
+	for site, wantRefused := range map[string]bool{"cross-site": true, "same-origin": false} {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
+		r.Header.Set("Sec-Fetch-Site", site)
+		h.ServeHTTP(rec, r)
+		if refused := rec.Code == http.StatusForbidden; refused != wantRefused {
+			t.Errorf("Sec-Fetch-Site %s: got %d, refused = %v, want %v", site, rec.Code, refused, wantRefused)
+		}
+	}
+}
+
+func TestRoutesAreMounted(t *testing.T) {
+	d := deps("local", up)
+	d.Routes = func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /api/hello", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("hi")) })
+	}
+	if rec := get(server.New(d), "/api/hello"); rec.Code != 200 || body(rec) != "hi" {
+		t.Fatalf("got %d %s", rec.Code, body(rec))
+	}
+}

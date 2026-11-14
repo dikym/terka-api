@@ -5,6 +5,7 @@ go 1.27.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.12.0
+	golang.org/x/time v0.16.0
 )
 
 require (

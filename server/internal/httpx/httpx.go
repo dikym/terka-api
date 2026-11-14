@@ -2,10 +2,14 @@
 package httpx
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 )
 
 // Handler is an http handler that reports failure by returning an error.
@@ -65,4 +69,49 @@ func Handle(h Handler, log *slog.Logger) http.Handler {
 		log.ErrorContext(r.Context(), "handler failed", "error", err, "path", r.URL.Path)
 		writeInternal(w)
 	}), log)
+}
+
+// Every request body the API takes is a small JSON object; 8 KiB is far more than any of them needs.
+const maxBody = 8 << 10
+
+func badRequest(message string) error {
+	return &Error{Status: http.StatusBadRequest, Code: "bad_request", Message: message}
+}
+
+// DecodeJSON reads exactly one JSON object into v. Anything else (an oversized body, an unknown
+// field, a second value, null or a bare string) is the client's mistake and comes back as a 400.
+func DecodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	if err != nil {
+		return badRequest("request body is too large or unreadable")
+	}
+	body = bytes.TrimSpace(body)
+	// Decoding null into a struct succeeds and leaves it empty, so the shape is checked first.
+	if len(body) == 0 || body[0] != '{' {
+		return badRequest("request body must be a JSON object")
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return badRequest("request body is not valid for this endpoint")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return badRequest("request body must hold a single JSON object")
+	}
+	return nil
+}
+
+// ClientIP is the address rate limits count against. CF-Connecting-IP is believed only when the
+// server is known to sit behind Cloudflare, because anyone else can send that header.
+func ClientIP(r *http.Request, trustCloudflare bool) string {
+	if trustCloudflare {
+		if addr, err := netip.ParseAddr(r.Header.Get("CF-Connecting-IP")); err == nil {
+			return addr.WithZone("").Unmap().String()
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

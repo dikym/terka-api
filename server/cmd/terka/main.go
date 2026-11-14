@@ -73,10 +73,6 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 		tell(stderr, "%v\n", err)
 		return 1
 	}
-	if cfg.DatabaseURL == "" && cfg.Env != "local" {
-		tell(stderr, "TERKA_DATABASE_URL is required outside the local environment\n")
-		return 1
-	}
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
 
 	ping := func(context.Context) error { return errors.New("no database configured") }

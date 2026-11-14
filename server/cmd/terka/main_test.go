@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
@@ -118,8 +119,17 @@ func TestServeStopsWhenContextEnds(t *testing.T) {
 
 func TestServeStartsWithoutDatabase(t *testing.T) {
 	base, _, _ := startServe(t, map[string]string{
-		"TERKA_ENV":          "staging",
-		"TERKA_DATABASE_URL": "postgres://u:p@127.0.0.1:1/terka",
+		"TERKA_ENV":                  "staging",
+		"TERKA_DATABASE_URL":         "postgres://u:p@127.0.0.1:1/terka",
+		"TERKA_AUTH_DATABASE_URL":    "postgres://u:p@127.0.0.1:1/terka",
+		"TERKA_PUBLIC_URL":           "https://staging.example.test",
+		"TERKA_AUTH_KEY":             base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"TERKA_GOOGLE_CLIENT_ID":     "id",
+		"TERKA_GOOGLE_CLIENT_SECRET": "secret",
+		"TERKA_TURNSTILE_SECRET":     "secret",
+		"TERKA_TURNSTILE_HOSTNAMES":  "staging.example.test",
+		"TERKA_SMTP_URL":             "smtp+starttls://u:p@127.0.0.1:1",
+		"TERKA_MAIL_FROM":            "Terka <no-reply@example.test>",
 	})
 	if got := status(t, base+"/healthz"); got != 200 {
 		t.Fatalf("healthz = %d, want 200", got)
