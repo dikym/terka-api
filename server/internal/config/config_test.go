@@ -139,3 +139,12 @@ func TestLocalHasSafeTestDefaults(t *testing.T) {
 		t.Errorf("auth key %d bytes, trust %v, google %q", len(cfg.AuthKey), cfg.TrustCloudflare, cfg.GoogleClientID)
 	}
 }
+
+func TestBadSMTPURLErrorHidesTheCredentials(t *testing.T) {
+	vars := staging()
+	vars["TERKA_SMTP_URL"] = "smtp+starttls://user:hunter2secret@smtp.resend.com:bad"
+	_, err := config.Load(env(vars))
+	if err == nil || !strings.Contains(err.Error(), "TERKA_SMTP_URL") || strings.Contains(err.Error(), "hunter2secret") {
+		t.Fatalf("err = %v, want one naming TERKA_SMTP_URL without the password", err)
+	}
+}

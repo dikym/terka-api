@@ -108,8 +108,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	smtp, err := url.Parse(cfg.SMTPURL)
+	// The parse error quotes the whole URL, password included, and this message ends up in logs.
 	if err != nil {
-		return Config{}, fmt.Errorf("TERKA_SMTP_URL: %w", err)
+		return Config{}, errors.New("TERKA_SMTP_URL is not a valid URL")
 	}
 	if envName != "local" && smtp.Scheme != "smtp+starttls" {
 		return Config{}, errors.New("TERKA_SMTP_URL must use smtp+starttls:// outside the local environment")
