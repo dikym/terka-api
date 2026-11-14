@@ -3,6 +3,7 @@ package auth_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -109,7 +110,7 @@ func TestGoogleKeepsTheAddressWhenTheNewOneBelongsToAnotherAccount(t *testing.T)
 func TestGoogleLinksToAVerifiedEmailUser(t *testing.T) {
 	e := newGoogleEnv(t)
 	id := createUser(t, e.auth, "ani@contoh.id")
-	s, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "ani@contoh.id"})
+	s, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "ani@contoh.id", "hd": "contoh.id"})
 	if err != nil || s.UserID != id {
 		t.Fatalf("got %+v, %v; want user %s", s, err, id)
 	}
@@ -123,7 +124,7 @@ func TestGoogleLinksToAVerifiedEmailUser(t *testing.T) {
 func TestGoogleMatchesAddressCaseInsensitively(t *testing.T) {
 	e := newGoogleEnv(t)
 	id := createUser(t, e.auth, "ani@contoh.id")
-	s, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "Ani@Contoh.ID"})
+	s, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "Ani@Contoh.ID", "hd": "Contoh.ID"})
 	if err != nil || s.UserID != id {
 		t.Fatalf("got %+v, %v; want user %s", s, err, id)
 	}
@@ -334,5 +335,44 @@ func TestCallbackRejects(t *testing.T) {
 				t.Fatal("a session was made")
 			}
 		})
+	}
+}
+
+// Google vouches for an address only on its own domains or on a Workspace domain it hosts; elsewhere
+// email_verified means the address was once proven, not that this person controls it now.
+func TestGoogleLinksByAddressOnlyWhereGoogleIsTheAuthority(t *testing.T) {
+	e := newGoogleEnv(t)
+	createUser(t, e.auth, "ani@contoh.id")
+	for _, claims := range []oidctest.Claims{
+		{"sub": "g-1", "email": "ani@contoh.id"},
+		{"sub": "g-1", "email": "ani@contoh.id", "hd": "lain.id"},
+	} {
+		_, err := e.signIn(t, claims)
+		assertIs(t, fmt.Sprintf("link by %v", claims), err, auth.ErrGoogleFailed)
+	}
+	if e.sessions(t) != 0 {
+		t.Fatal("linked without Google being the authority for the address")
+	}
+	gmail := createUser(t, e.auth, "budi@gmail.com")
+	if s, err := e.signIn(t, oidctest.Claims{"sub": "g-2", "email": "budi@gmail.com"}); err != nil || s.UserID != gmail {
+		t.Fatalf("gmail link: %+v, %v", s, err)
+	}
+}
+
+func TestGoogleTakesANewAddressOnlyWhereGoogleIsTheAuthority(t *testing.T) {
+	e := newGoogleEnv(t)
+	if _, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "ani@gmail.com"}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "ani@contoh.id"})
+	if err != nil || s.Email != "ani@gmail.com" {
+		t.Fatalf("got %+v, %v; want the account kept on its Gmail address", s, err)
+	}
+}
+
+func TestGoogleCreatesAnAccountForAnAddressNobodyHas(t *testing.T) {
+	e := newGoogleEnv(t)
+	if s, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "ani@contoh.id"}); err != nil || s.Email != "ani@contoh.id" {
+		t.Fatalf("got %+v, %v", s, err)
 	}
 }

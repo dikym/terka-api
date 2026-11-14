@@ -335,22 +335,29 @@ func (q *Queries) SessionByTokenHash(ctx context.Context, tokenHash []byte) (Ses
 const signInGoogleUser = `-- name: SignInGoogleUser :exec
 update auth.users
 set email = case
-		when exists (select 1 from auth.users other where lower(other.email) = lower($1) and other.id <> $2)
-		then email else $1 end,
-	email_verified_at = coalesce(email_verified_at, $3),
-	last_sign_in_at = $3
-where id = $2
+		when not $1::boolean
+			or exists (select 1 from auth.users other where lower(other.email) = lower($2) and other.id <> $3)
+		then email else $2 end,
+	email_verified_at = coalesce(email_verified_at, $4),
+	last_sign_in_at = $4
+where id = $3
 `
 
 type SignInGoogleUserParams struct {
-	Email string
-	ID    uuid.UUID
-	Now   *time.Time
+	TakeAddress bool
+	Email       string
+	ID          uuid.UUID
+	Now         *time.Time
 }
 
-// A changed Google address is taken over only when no other account owns it.
+// A changed Google address is taken over only when Google vouches for it and no other account owns it.
 func (q *Queries) SignInGoogleUser(ctx context.Context, arg SignInGoogleUserParams) error {
-	_, err := q.db.Exec(ctx, signInGoogleUser, arg.Email, arg.ID, arg.Now)
+	_, err := q.db.Exec(ctx, signInGoogleUser,
+		arg.TakeAddress,
+		arg.Email,
+		arg.ID,
+		arg.Now,
+	)
 	return err
 }
 

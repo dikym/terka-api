@@ -94,11 +94,12 @@ select id from auth.users where google_sub = @google_sub;
 -- name: UserByEmail :one
 select id, google_sub, email_verified_at from auth.users where lower(email) = lower(@email);
 
--- A changed Google address is taken over only when no other account owns it.
+-- A changed Google address is taken over only when Google vouches for it and no other account owns it.
 -- name: SignInGoogleUser :exec
 update auth.users
 set email = case
-		when exists (select 1 from auth.users other where lower(other.email) = lower(@email) and other.id <> @id)
+		when not @take_address::boolean
+			or exists (select 1 from auth.users other where lower(other.email) = lower(@email) and other.id <> @id)
 		then email else @email end,
 	email_verified_at = coalesce(email_verified_at, @now),
 	last_sign_in_at = @now

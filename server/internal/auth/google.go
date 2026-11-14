@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -143,6 +144,7 @@ func (g *Google) Callback(ctx context.Context, query url.Values, cookie string) 
 	var claims struct {
 		Email    string `json:"email"`
 		Verified bool   `json:"email_verified"`
+		Domain   string `json:"hd"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return "", Session{}, failed("claims: %v", err)
@@ -163,7 +165,7 @@ func (g *Google) Callback(ctx context.Context, query url.Values, cookie string) 
 		if err := q.LockMailbox(ctx, Mailbox(addr)); err != nil {
 			return err
 		}
-		userID, err := g.findOrCreate(ctx, q, idToken.Subject, addr, now)
+		userID, err := g.findOrCreate(ctx, q, idToken.Subject, addr, googleVouches(addr, claims.Domain), now)
 		if err != nil {
 			return err
 		}
@@ -179,12 +181,21 @@ func (g *Google) Callback(ctx context.Context, query url.Values, cookie string) 
 	return token, sess, nil
 }
 
+// googleVouches reports whether Google is the authority for addr: its own mail domains, or the
+// Workspace domain named in the hd claim. Anywhere else email_verified only says the address was
+// proven once, not that this person still controls it.
+func googleVouches(addr, hostedDomain string) bool {
+	domain := addr[strings.LastIndex(addr, "@")+1:]
+	return domain == "gmail.com" || domain == "googlemail.com" || (hostedDomain != "" && strings.EqualFold(hostedDomain, domain))
+}
+
 // findOrCreate looks the person up by Google account first, then by address. An address is linked
-// only to an account that proved it owns it and that no other Google account claimed.
-func (g *Google) findOrCreate(ctx context.Context, q *store.Queries, sub, addr string, now time.Time) (uuid.UUID, error) {
+// only when Google vouches for it, to an account that proved it owns it and that no other Google
+// account claimed.
+func (g *Google) findOrCreate(ctx context.Context, q *store.Queries, sub, addr string, vouched bool, now time.Time) (uuid.UUID, error) {
 	id, err := q.UserByGoogleSub(ctx, &sub)
 	if err == nil {
-		return id, q.SignInGoogleUser(ctx, store.SignInGoogleUserParams{ID: id, Email: addr, Now: &now})
+		return id, q.SignInGoogleUser(ctx, store.SignInGoogleUserParams{ID: id, Email: addr, TakeAddress: vouched, Now: &now})
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return uuid.UUID{}, err
@@ -195,6 +206,9 @@ func (g *Google) findOrCreate(ctx context.Context, q *store.Queries, sub, addr s
 	}
 	if err != nil {
 		return uuid.UUID{}, err
+	}
+	if !vouched {
+		return uuid.UUID{}, failed("google does not vouch for the address of an existing account")
 	}
 	if user.GoogleSub != nil {
 		return uuid.UUID{}, failed("address belongs to another google account")
