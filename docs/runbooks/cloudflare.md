@@ -111,10 +111,10 @@ curl -s https://staging.terka.my.id/_app/version.json                          #
 curl -s -o /dev/null -w '%{http_code}\n' https://staging.terka.my.id/readyz     # 200
 curl -sI https://staging.terka.my.id/ | grep -i '^server:'                     # cloudflare
 curl -sI https://staging.terka.my.id/ | grep -i x-robots-tag                   # noindex
-curl -s -m 10 --resolve staging.terka.my.id:443:<IP VPS> https://staging.terka.my.id/healthz
-                                                                               # harus habis waktu
-curl -s -m 10 -6 --resolve 'staging.terka.my.id:443:[<IPv6 VPS>]' https://staging.terka.my.id/healthz
-                                                                               # kalau ada IPv6: harus gagal
+curl -sS -m 10 --resolve staging.terka.my.id:443:<IP VPS> https://staging.terka.my.id/healthz
+                                                                               # harus: curl: (28) ... timed out
+curl -sS -m 10 -6 --resolve 'staging.terka.my.id:443:[<IPv6 VPS>]' https://staging.terka.my.id/healthz
+                                                                               # kalau ada IPv6: harus gagal juga
 curl -sI https://terka.my.id/ | grep -i '^server:'                             # masih Vercel
 ```
 
