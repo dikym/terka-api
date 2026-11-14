@@ -26,6 +26,25 @@ func (q *Queries) BurnBindingCodes(ctx context.Context, arg BurnBindingCodesPara
 	return err
 }
 
+const createGoogleUser = `-- name: CreateGoogleUser :one
+insert into auth.users (email, google_sub, email_verified_at, last_sign_in_at)
+values ($1, $2, $3, $3)
+returning id
+`
+
+type CreateGoogleUserParams struct {
+	Email     string
+	GoogleSub *string
+	Now       *time.Time
+}
+
+func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, createGoogleUser, arg.Email, arg.GoogleSub, arg.Now)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createSession = `-- name: CreateSession :one
 
 with created as (
@@ -152,6 +171,21 @@ func (q *Queries) InsertEmailCode(ctx context.Context, arg InsertEmailCodeParams
 		arg.ExpiresAt,
 		arg.RequestIp,
 	)
+	return err
+}
+
+const linkGoogleUser = `-- name: LinkGoogleUser :exec
+update auth.users set google_sub = $1, last_sign_in_at = $2 where id = $3
+`
+
+type LinkGoogleUserParams struct {
+	GoogleSub *string
+	Now       *time.Time
+	ID        uuid.UUID
+}
+
+func (q *Queries) LinkGoogleUser(ctx context.Context, arg LinkGoogleUserParams) error {
+	_, err := q.db.Exec(ctx, linkGoogleUser, arg.GoogleSub, arg.Now, arg.ID)
 	return err
 }
 
@@ -298,6 +332,28 @@ func (q *Queries) SessionByTokenHash(ctx context.Context, tokenHash []byte) (Ses
 	return i, err
 }
 
+const signInGoogleUser = `-- name: SignInGoogleUser :exec
+update auth.users
+set email = case
+		when exists (select 1 from auth.users other where lower(other.email) = lower($1) and other.id <> $2)
+		then email else $1 end,
+	email_verified_at = coalesce(email_verified_at, $3),
+	last_sign_in_at = $3
+where id = $2
+`
+
+type SignInGoogleUserParams struct {
+	Email string
+	ID    uuid.UUID
+	Now   *time.Time
+}
+
+// A changed Google address is taken over only when no other account owns it.
+func (q *Queries) SignInGoogleUser(ctx context.Context, arg SignInGoogleUserParams) error {
+	_, err := q.db.Exec(ctx, signInGoogleUser, arg.Email, arg.ID, arg.Now)
+	return err
+}
+
 const touchSession = `-- name: TouchSession :exec
 update auth.sessions set last_used_at = $1, expires_at = $2 where id = $3
 `
@@ -364,4 +420,32 @@ type UseEmailCodeParams struct {
 func (q *Queries) UseEmailCode(ctx context.Context, arg UseEmailCodeParams) error {
 	_, err := q.db.Exec(ctx, useEmailCode, arg.Now, arg.ID)
 	return err
+}
+
+const userByEmail = `-- name: UserByEmail :one
+select id, google_sub, email_verified_at from auth.users where lower(email) = lower($1)
+`
+
+type UserByEmailRow struct {
+	ID              uuid.UUID
+	GoogleSub       *string
+	EmailVerifiedAt *time.Time
+}
+
+func (q *Queries) UserByEmail(ctx context.Context, email string) (UserByEmailRow, error) {
+	row := q.db.QueryRow(ctx, userByEmail, email)
+	var i UserByEmailRow
+	err := row.Scan(&i.ID, &i.GoogleSub, &i.EmailVerifiedAt)
+	return i, err
+}
+
+const userByGoogleSub = `-- name: UserByGoogleSub :one
+select id from auth.users where google_sub = $1
+`
+
+func (q *Queries) UserByGoogleSub(ctx context.Context, googleSub *string) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, userByGoogleSub, googleSub)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
