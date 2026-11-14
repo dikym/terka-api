@@ -195,9 +195,10 @@ func googleVouches(addr, hostedDomain string) bool {
 	return domain == "gmail.com" || domain == "googlemail.com" || (hostedDomain != "" && strings.EqualFold(hostedDomain, domain))
 }
 
-// findOrCreate looks the person up by Google account first, then by address. An address is linked
-// only when Google vouches for it, to an account that proved it owns it and that no other Google
-// account claimed.
+// findOrCreate looks the person up by Google account first. Past that, the address is used only when
+// Google vouches for it, both to link an account that proved it owns the address and that no other
+// Google account claimed, and to make a new account: one made from an address Google does not
+// vouch for would later take in the email sign-in of whoever owns that mailbox now.
 func (g *Google) findOrCreate(ctx context.Context, q *store.Queries, sub, addr string, vouched bool, now time.Time) (uuid.UUID, error) {
 	id, err := q.UserByGoogleSub(ctx, &sub)
 	if err == nil {
@@ -206,15 +207,15 @@ func (g *Google) findOrCreate(ctx context.Context, q *store.Queries, sub, addr s
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return uuid.UUID{}, err
 	}
+	if !vouched {
+		return uuid.UUID{}, failed("google does not vouch for the address")
+	}
 	user, err := q.UserByEmail(ctx, addr)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return q.CreateGoogleUser(ctx, store.CreateGoogleUserParams{Email: addr, GoogleSub: &sub, Now: &now})
 	}
 	if err != nil {
 		return uuid.UUID{}, err
-	}
-	if !vouched {
-		return uuid.UUID{}, failed("google does not vouch for the address of an existing account")
 	}
 	if user.GoogleSub != nil {
 		return uuid.UUID{}, failed("address belongs to another google account")

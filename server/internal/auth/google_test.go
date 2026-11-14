@@ -366,9 +366,23 @@ func TestGoogleTakesANewAddressOnlyWhereGoogleIsTheAuthority(t *testing.T) {
 	}
 }
 
-func TestGoogleCreatesAnAccountForAnAddressNobodyHas(t *testing.T) {
+// A Google account on an address Google does not vouch for may belong to someone who no longer
+// owns the mailbox; an account made from it would later swallow the real owner's email sign-in.
+func TestGoogleCreatesAnAccountOnlyForAnAddressItVouchesFor(t *testing.T) {
 	e := newGoogleEnv(t)
-	if s, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "ani@contoh.id"}); err != nil || s.Email != "ani@contoh.id" {
-		t.Fatalf("got %+v, %v", s, err)
+	_, err := e.signIn(t, oidctest.Claims{"sub": "g-1", "email": "ani@contoh.id"})
+	assertIs(t, "new account on an unvouched address", err, auth.ErrGoogleFailed)
+	var users int
+	query(t, e.auth, "select count(*) from auth.users", nil, &users)
+	if users != 0 {
+		t.Fatal("an account was made for an address Google does not vouch for")
+	}
+	for _, claims := range []oidctest.Claims{
+		{"sub": "g-2", "email": "budi@gmail.com"},
+		{"sub": "g-3", "email": "citra@contoh.id", "hd": "contoh.id"},
+	} {
+		if _, err := e.signIn(t, claims); err != nil {
+			t.Fatalf("%v: %v", claims, err)
+		}
 	}
 }
