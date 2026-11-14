@@ -12,6 +12,20 @@ import (
 	"github.com/google/uuid"
 )
 
+const burnBindingCodes = `-- name: BurnBindingCodes :exec
+update auth.email_codes set used_at = $1 where binding_hash = $2 and used_at is null
+`
+
+type BurnBindingCodesParams struct {
+	Now         *time.Time
+	BindingHash []byte
+}
+
+func (q *Queries) BurnBindingCodes(ctx context.Context, arg BurnBindingCodesParams) error {
+	_, err := q.db.Exec(ctx, burnBindingCodes, arg.Now, arg.BindingHash)
+	return err
+}
+
 const createSession = `-- name: CreateSession :one
 
 with created as (
@@ -104,6 +118,154 @@ func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte
 	return err
 }
 
+const failEmailCode = `-- name: FailEmailCode :exec
+update auth.email_codes set failed_attempts = failed_attempts + 1 where id = $1
+`
+
+func (q *Queries) FailEmailCode(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, failEmailCode, id)
+	return err
+}
+
+const insertEmailCode = `-- name: InsertEmailCode :exec
+insert into auth.email_codes (email, mailbox, code_hmac, binding_hash, created_at, expires_at, request_ip)
+values ($1, $2, $3, $4, $5, $6, nullif($7::text, '')::inet)
+`
+
+type InsertEmailCodeParams struct {
+	Email       string
+	Mailbox     string
+	CodeHmac    []byte
+	BindingHash []byte
+	Now         time.Time
+	ExpiresAt   time.Time
+	RequestIp   string
+}
+
+func (q *Queries) InsertEmailCode(ctx context.Context, arg InsertEmailCodeParams) error {
+	_, err := q.db.Exec(ctx, insertEmailCode,
+		arg.Email,
+		arg.Mailbox,
+		arg.CodeHmac,
+		arg.BindingHash,
+		arg.Now,
+		arg.ExpiresAt,
+		arg.RequestIp,
+	)
+	return err
+}
+
+const liveEmailCode = `-- name: LiveEmailCode :one
+select id, code_hmac from auth.email_codes
+where email = $1 and binding_hash = $2 and used_at is null and expires_at > $3
+	and failed_attempts < 5
+order by created_at desc limit 1
+for update
+`
+
+type LiveEmailCodeParams struct {
+	Email       string
+	BindingHash []byte
+	Now         time.Time
+}
+
+type LiveEmailCodeRow struct {
+	ID       uuid.UUID
+	CodeHmac []byte
+}
+
+func (q *Queries) LiveEmailCode(ctx context.Context, arg LiveEmailCodeParams) (LiveEmailCodeRow, error) {
+	row := q.db.QueryRow(ctx, liveEmailCode, arg.Email, arg.BindingHash, arg.Now)
+	var i LiveEmailCodeRow
+	err := row.Scan(&i.ID, &i.CodeHmac)
+	return i, err
+}
+
+const lockEmailService = `-- name: LockEmailService :exec
+select pg_advisory_xact_lock(7462725431)
+`
+
+// Taken after the mailbox lock, never before, so the two cannot deadlock.
+func (q *Queries) LockEmailService(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockEmailService)
+	return err
+}
+
+const lockMailbox = `-- name: LockMailbox :exec
+select pg_advisory_xact_lock(hashtextextended($1::text, 0))
+`
+
+// Every email code request and verify for one mailbox runs under this lock, so the limits below
+// are counted and acted on without a race.
+func (q *Queries) LockMailbox(ctx context.Context, mailbox string) error {
+	_, err := q.db.Exec(ctx, lockMailbox, mailbox)
+	return err
+}
+
+const mailboxRequests = `-- name: MailboxRequests :one
+select count(*) as requests,
+	coalesce(min(created_at), $1::timestamptz)::timestamptz as oldest,
+	coalesce(max(created_at), $1::timestamptz)::timestamptz as newest
+from auth.email_codes
+where mailbox = $2 and created_at > $1
+`
+
+type MailboxRequestsParams struct {
+	Since   time.Time
+	Mailbox string
+}
+
+type MailboxRequestsRow struct {
+	Requests int64
+	Oldest   time.Time
+	Newest   time.Time
+}
+
+func (q *Queries) MailboxRequests(ctx context.Context, arg MailboxRequestsParams) (MailboxRequestsRow, error) {
+	row := q.db.QueryRow(ctx, mailboxRequests, arg.Since, arg.Mailbox)
+	var i MailboxRequestsRow
+	err := row.Scan(&i.Requests, &i.Oldest, &i.Newest)
+	return i, err
+}
+
+const recordSigninFailure = `-- name: RecordSigninFailure :exec
+insert into auth.signin_failures (mailbox, failed_at) values ($1, $2)
+`
+
+type RecordSigninFailureParams struct {
+	Mailbox string
+	Now     time.Time
+}
+
+func (q *Queries) RecordSigninFailure(ctx context.Context, arg RecordSigninFailureParams) error {
+	_, err := q.db.Exec(ctx, recordSigninFailure, arg.Mailbox, arg.Now)
+	return err
+}
+
+const serviceRequests = `-- name: ServiceRequests :one
+select count(*) filter (where created_at > $1) as last_hour,
+	count(*) filter (where created_at >= $2) as today
+from auth.email_codes
+where created_at > $1 or created_at >= $2
+`
+
+type ServiceRequestsParams struct {
+	HourAgo  time.Time
+	DayStart time.Time
+}
+
+type ServiceRequestsRow struct {
+	LastHour int64
+	Today    int64
+}
+
+func (q *Queries) ServiceRequests(ctx context.Context, arg ServiceRequestsParams) (ServiceRequestsRow, error) {
+	row := q.db.QueryRow(ctx, serviceRequests, arg.HourAgo, arg.DayStart)
+	var i ServiceRequestsRow
+	err := row.Scan(&i.LastHour, &i.Today)
+	return i, err
+}
+
 const sessionByTokenHash = `-- name: SessionByTokenHash :one
 select sessions.id, sessions.user_id, sessions.method, sessions.last_used_at, sessions.expires_at,
 	sessions.absolute_expires_at, users.email
@@ -148,5 +310,58 @@ type TouchSessionParams struct {
 
 func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) error {
 	_, err := q.db.Exec(ctx, touchSession, arg.Now, arg.ExpiresAt, arg.ID)
+	return err
+}
+
+const twentiethFailure = `-- name: TwentiethFailure :one
+select failed_at from auth.signin_failures
+where mailbox = $1 and failed_at > $2
+order by failed_at desc offset 19 limit 1
+`
+
+type TwentiethFailureParams struct {
+	Mailbox string
+	Since   time.Time
+}
+
+// The twentieth most recent failure in the window; while it exists the mailbox is locked.
+func (q *Queries) TwentiethFailure(ctx context.Context, arg TwentiethFailureParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, twentiethFailure, arg.Mailbox, arg.Since)
+	var failed_at time.Time
+	err := row.Scan(&failed_at)
+	return failed_at, err
+}
+
+const upsertEmailUser = `-- name: UpsertEmailUser :one
+insert into auth.users (email, email_verified_at, last_sign_in_at) values ($1, $2, $2)
+on conflict ((lower(email))) do update
+	set email_verified_at = coalesce(users.email_verified_at, excluded.email_verified_at),
+		last_sign_in_at = excluded.last_sign_in_at
+returning id
+`
+
+type UpsertEmailUserParams struct {
+	Email string
+	Now   *time.Time
+}
+
+func (q *Queries) UpsertEmailUser(ctx context.Context, arg UpsertEmailUserParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, upsertEmailUser, arg.Email, arg.Now)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const useEmailCode = `-- name: UseEmailCode :exec
+update auth.email_codes set used_at = $1 where id = $2
+`
+
+type UseEmailCodeParams struct {
+	Now *time.Time
+	ID  uuid.UUID
+}
+
+func (q *Queries) UseEmailCode(ctx context.Context, arg UseEmailCodeParams) error {
+	_, err := q.db.Exec(ctx, useEmailCode, arg.Now, arg.ID)
 	return err
 }
