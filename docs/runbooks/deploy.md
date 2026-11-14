@@ -119,7 +119,9 @@ ssh root@<ip-vps>                                                             # 
 ssh -o PasswordAuthentication=yes -o PubkeyAuthentication=no deploy@<ip-vps>  # harus ditolak
 ```
 
-Harapan: swap 2G, Docker Compose terpasang, `.env` bermode `600`.
+Harapan: `swapon --show` tidak kosong, Docker Compose terpasang, `.env` bermode `600`. Playbook
+membuat `/swapfile` 2G hanya jika VPS belum punya swap. Image Lighthouse sudah membawa `/swap.img`
+2G, jadi di sana tidak ada `/swapfile` baru.
 
 ## Postgres dan database lingkungan
 
@@ -141,11 +143,16 @@ dan `docker stats --no-stream` menunjukkan batas 512 MiB pada Postgres.
 ### Garis dasar memori
 
 Catat keluaran `free -m` setelah jalan pertama di sini, sebagai pembanding saat tumpukan
-observability dipasang.
+observability dipasang. Diambil 2026-11-15, setelah Postgres berjalan dan sebelum API dan UI.
 
 ```
-(belum diisi)
+               total        used        free      shared  buff/cache   available
+Mem:            1962         709         133          33        1343        1253
+Swap:           4095          27        4068
 ```
+
+Swap 4 GB di VPS ini adalah `/swap.img` 2G bawaan image ditambah `/swapfile` 2G dari playbook versi
+lama. Playbook sekarang tidak membuat `/swapfile` jika sudah ada swap.
 
 ## Login
 
