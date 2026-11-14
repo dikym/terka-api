@@ -153,3 +153,14 @@ func TestRoutesAreMounted(t *testing.T) {
 		t.Fatalf("got %d %s", rec.Code, body(rec))
 	}
 }
+
+func TestCrossOriginRefusalIsJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	server.New(deps("local", up)).ServeHTTP(rec, r)
+	if rec.Code != http.StatusForbidden || rec.Header().Get("Content-Type") != "application/json" ||
+		!strings.Contains(body(rec), `"code":"cross_origin"`) {
+		t.Fatalf("got %d %q %s", rec.Code, rec.Header().Get("Content-Type"), body(rec))
+	}
+}

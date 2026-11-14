@@ -44,7 +44,11 @@ func New(d Deps) http.Handler {
 	}
 	// Browsers say where a request comes from; a write from another site is refused before any
 	// handler sees it, so a session cookie can never be spent by a page the user did not open.
-	guarded := http.NewCrossOriginProtection().Handler(mux)
+	protection := http.NewCrossOriginProtection()
+	protection.SetDenyHandler(httpx.Handle(func(http.ResponseWriter, *http.Request) error {
+		return &httpx.Error{Status: http.StatusForbidden, Code: "cross_origin", Message: "cross-origin request refused"}
+	}, d.Logger))
+	guarded := protection.Handler(mux)
 	return httpx.Recover(accessLog(securityHeaders(guarded, d.Env), d.Logger), d.Logger)
 }
 
