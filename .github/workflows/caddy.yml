@@ -1,6 +1,8 @@
 # The shared Caddy base image (deploy/caddy), used by the VPS edge and by terka-web's image.
-# A push to main that changes deploy/caddy publishes ghcr.io/dikym/terka-caddy:<deploy/caddy/VERSION>
-# for amd64 and arm64. Every night the published image is scanned, so a newly announced
+# A push to main that changes deploy/caddy, or a manual run, publishes
+# ghcr.io/dikym/terka-caddy:<deploy/caddy/VERSION> for amd64 and arm64. The first push of a new
+# repository does not match the paths filter, so the first publish is a manual run.
+# Every night the published image is scanned, so a newly announced
 # vulnerability fails this workflow (and GitHub tells the owner) instead of blocking app deploys.
 name: caddy
 
@@ -17,7 +19,7 @@ permissions:
 
 jobs:
   publish:
-    if: github.event_name == 'push'
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -52,7 +54,7 @@ jobs:
           push: true
 
   scan:
-    if: github.event_name != 'push'
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
