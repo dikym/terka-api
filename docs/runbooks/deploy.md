@@ -386,6 +386,22 @@ sudo -iu deploy /opt/terka/bin/deploy.sh api staging <sha sebelumnya>
 
 SHA sebelumnya bisa dilihat di riwayat workflow `deploy` di GitHub atau dengan `git log` di repo.
 
+**Batas rollback API.** `deploy.sh` menjalankan `/terka smoke` di container baru, dan subcommand itu baru
+ada di image sejak commit `dd164a2`. Image API yang lebih tua menjawab `unknown command "smoke"`, sehingga
+deploy-nya keluar `2` dengan `failed the smoke test` dan versi yang sedang jalan tetap melayani. Rollback
+API hanya bisa ke SHA yang memuat `dd164a2`. Periksa di laptop sebelum rollback:
+
+```sh
+git merge-base --is-ancestor dd164a2 <sha sebelumnya> && echo "bisa di-rollback"
+```
+
+Jika SHA yang diinginkan lebih tua, perbaiki maju (commit perbaikan di atas `main`), atau rollback ke SHA
+tertua yang masih memuat `dd164a2`. UI tidak terkena batas ini, karena smoke test hanya untuk API.
+
+**Urutan saat mengubah `deploy.sh` yang memanggil fitur baru di image.** Push dan deploy image yang membawa
+fitur itu dulu, lalu jalankan playbook yang memasang `deploy.sh` baru. Urutan sebaliknya membuat setiap
+deploy API ditolak sampai image barunya ada.
+
 ## Migrasi ke network edge (sekali)
 
 Hanya untuk VPS yang disiapkan sebelum `terka-edge` ada, yaitu ketika Caddy masih di network `terka`
