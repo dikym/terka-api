@@ -70,9 +70,9 @@ Periksa: `sudo ls -l /opt/terka/infra/certs` menampilkan kedua berkas, pemilik `
    ```
    (http.host eq "staging.terka.my.id" and not starts_with(http.request.uri.path, "/api/") and not http.request.uri.path in {"/healthz" "/readyz"})
    ```
-   *Cache eligibility*: **Eligible for cache**. *Edge TTL*: **Use cache-control header if present, bypass cache if not**. Klik **Deploy**.
+   *Cache eligibility*: **Eligible for cache**. *Edge TTL*: **Use cache-control header if present, bypass cache if not**. *Browser TTL*: **Respect origin TTL**. Klik **Deploy**.
 
-Ekspresi aturan 2 sengaja mengecualikan path yang ditangani aturan 1. Aturan yang cocok dijalankan berurutan dan aturan belakangan menimpa pengaturan aturan sebelumnya, jadi aturan 2 yang mencakup semua permintaan bisa membatalkan `Bypass cache` dari aturan 1. Dengan pengecualian ini, hasilnya benar di urutan mana pun. Biarkan *Browser TTL* pada nilai bawaan.
+Ekspresi aturan 2 sengaja mengecualikan path yang ditangani aturan 1. Aturan yang cocok dijalankan berurutan dan aturan belakangan menimpa pengaturan aturan sebelumnya, jadi aturan 2 yang mencakup semua permintaan bisa membatalkan `Bypass cache` dari aturan 1. Dengan pengecualian ini, hasilnya benar di urutan mana pun. *Browser TTL* wajib **Respect origin TTL**: nilai bawaan zona (4 jam) menimpa `no-cache` dari asal menjadi `max-age=14400`, sehingga browser memakai HTML lama sampai 4 jam setelah deploy.
 
 Server sudah mengirim `no-store` di setiap jawaban JSON, `no-cache` di HTML dan `sw.js`, dan cache satu tahun di aset ber-hash. Aturan pertama adalah pengaman kedua.
 
@@ -81,6 +81,7 @@ Periksa setelah deploy pertama (**[Laptop]**):
 ```sh
 curl -sI https://staging.terka.my.id/_app/version.json | grep -i cf-cache-status   # MISS lalu REVALIDATED/HIT
 curl -sI https://staging.terka.my.id/healthz | grep -i cf-cache-status              # BYPASS atau DYNAMIC
+curl -s -D - -o /dev/null "https://staging.terka.my.id/?probe=$RANDOM" | grep -i cache-control   # no-cache, bukan max-age=14400
 ```
 
 ## 6. Firewall Lighthouse
