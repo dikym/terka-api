@@ -33,6 +33,7 @@ inspect)
 	[ -n "$file" ] || { echo "Error: No such object: $id" >&2; exit 1; }
 	if [ "$(cat "$file")" = "$FAKE_NEW_IMAGE" ]; then echo "${FAKE_NEW_HEALTH:-healthy}"; else echo healthy; fi
 	;;
+exec) exit "${FAKE_SMOKE:-0}" ;;
 network)
 	[ "${FAKE_CONNECT_FAILS:-0}" = 1 ] && { echo "Error: network $5 not found" >&2; exit 1; }
 	echo "$4 $5" >"$FAKE_DIR/net/$6"
@@ -245,6 +246,26 @@ with_old api
 FAKE_NEW_HEALTH=unhealthy deploy api staging "$NEW"
 released_on_failure() { [ "$code" = 2 ] && [ ! -e "$work/root/staging/api.lock" ]; }
 check "a failed deploy releases its lock" released_on_failure
+
+with_old api
+deploy api staging "$NEW"
+smoked_first() { [ "$(calls | grep -E '^(exec|network connect)' | head -1)" = "exec c2 /terka smoke" ]; }
+check "the new api passes the smoke test before it joins the edge" smoked_first
+
+with_old api
+FAKE_SMOKE=1 deploy api staging "$NEW"
+smoke_failed() { old_keeps_serving && ! joined_edge && grep -q "failed the smoke test" "$work/out"; }
+check "an api that fails the smoke test is discarded and the old one keeps serving" smoke_failed
+
+new_world
+FAKE_SMOKE=1 deploy api staging "$NEW"
+first_smoke_failed() { nothing_left && ! joined_edge && grep -q "failed the smoke test" "$work/out"; }
+check "a first api that fails the smoke test leaves nothing running" first_smoke_failed
+
+with_old web
+FAKE_NEW_IMAGE="$WEB:$NEW" deploy web staging "$NEW"
+no_web_smoke() { [ "$code" = 0 ] && ! calls | grep -q "^exec"; }
+check "a web deploy runs no smoke test" no_web_smoke
 
 OLDER=3333333333333333333333333333333333333333
 with_old api

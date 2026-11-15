@@ -264,3 +264,32 @@ func TestCleanupRunsWhileServing(t *testing.T) {
 	}
 	t.Fatal("the expired session was never cleaned up")
 }
+
+func TestSmokeCommandPassesAgainstServe(t *testing.T) {
+	db := migrated(t)
+	vars := map[string]string{"TERKA_ENV": "local", "TERKA_DATABASE_URL": db.AppURL, "TERKA_AUTH_DATABASE_URL": db.AuthURL}
+	base, _, _ := startServe(t, vars)
+	vars["TERKA_ADDR"] = strings.TrimPrefix(base, "http://")
+	var stderr bytes.Buffer
+	if code := run(context.Background(), []string{"smoke"}, env(vars), io.Discard, &stderr); code != 0 {
+		t.Fatalf("smoke = %d: %s", code, stderr.String())
+	}
+}
+
+func TestSmokeCommandNeedsTheAuthDatabase(t *testing.T) {
+	var stderr bytes.Buffer
+	code := run(context.Background(), []string{"smoke"}, env(map[string]string{"TERKA_ENV": "local"}), io.Discard, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "TERKA_AUTH_DATABASE_URL") {
+		t.Fatalf("smoke = %d %q, want 1 naming TERKA_AUTH_DATABASE_URL", code, stderr.String())
+	}
+}
+
+func TestSmokeCommandFailsWhenNothingListens(t *testing.T) {
+	db := migrated(t)
+	vars := map[string]string{"TERKA_ENV": "local", "TERKA_AUTH_DATABASE_URL": db.AuthURL, "TERKA_ADDR": "127.0.0.1:1"}
+	var stderr bytes.Buffer
+	code := run(context.Background(), []string{"smoke"}, env(vars), io.Discard, &stderr)
+	if code != 1 || !strings.HasPrefix(stderr.String(), "smoke:") {
+		t.Fatalf("smoke = %d %q, want 1 and a line starting with smoke:", code, stderr.String())
+	}
+}

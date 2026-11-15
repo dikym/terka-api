@@ -9,8 +9,8 @@
 # that service; the environment and SHA come from SSH_ORIGINAL_COMMAND.
 #
 # Exit: 0 deployed · 1 another deploy of the service is running, or pull, migration or listing
-# the containers failed; running version untouched · 2 the new version
-# failed to start, turn healthy or join the edge and was removed; the old one kept serving
+# the containers failed; running version untouched · 2 the new version failed to start, turn
+# healthy, pass the smoke test (api only) or join the edge and was removed; the old one kept serving
 # throughout · 3 the same on a first deploy, nothing left running · 64 bad arguments.
 set -euo pipefail
 
@@ -109,6 +109,9 @@ if [ -z "$reason" ] && [ ${#new[@]} -ne 1 ]; then
 fi
 if [ -z "$reason" ] && ! healthy "${new[0]}"; then
 	reason="did not turn healthy"
+fi
+if [ -z "$reason" ] && [ "$service" = api ] && ! "$docker" exec "${new[0]}" /terka smoke; then
+	reason="failed the smoke test"
 fi
 if [ -z "$reason" ] && ! "$docker" network connect --alias "$alias" "$edge_network" "${new[0]}"; then
 	reason="could not join $edge_network"

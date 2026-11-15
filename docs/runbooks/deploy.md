@@ -366,7 +366,7 @@ memberi permintaan yang sedang berjalan waktu untuk selesai.
 
 Kode keluar: `0` berhasil, `1` deploy lain untuk layanan dan lingkungan yang sama sedang berjalan,
 atau tarik image, migration, atau daftar container gagal (versi yang jalan tidak disentuh),
-`2` versi baru gagal dijalankan, tidak sehat, atau gagal bergabung ke `terka-edge`, lalu dihapus;
+`2` versi baru gagal dijalankan, tidak sehat, gagal smoke test (khusus `api`: `terka smoke` membuat, membaca, dan mencabut sesi akun sintetis `smoke@terka.invalid` sebelum lalu lintas masuk), atau gagal bergabung ke `terka-edge`, lalu dihapus;
 versi lama terus melayani tanpa jeda, `3` hal yang sama pada deploy pertama, dan tidak ada
 container yang tersisa, `64` argumen salah. Migration hanya dijalankan untuk `api`.
 
@@ -560,6 +560,7 @@ Membuktikan bahwa versi rusak dibuang otomatis tanpa pernah melayani lalu lintas
 | `another deploy of api in staging is running`, padahal tidak ada deploy yang berjalan | Deploy sebelumnya dimatikan paksa (`SIGKILL`, VPS reboot) sehingga kuncinya tertinggal | **[VPS]** Pastikan tidak ada `deploy.sh` yang berjalan (`pgrep -af deploy.sh`), lalu sebagai `deploy`: `rmdir /opt/terka/staging/api.lock` (sesuaikan lingkungan dan layanan) |
 | Workflow `deploy` merah di langkah "Check the public pages and the signed-out API" | Versi baru (atau UI yang sedang jalan) melayani, tetapi salah satu pemeriksaan publik gagal. Baris `FAIL` di log menyebut yang mana | Ulangi dari laptop: `TERKA_STACK_URL=https://staging.terka.my.id TERKA_STACK_SIGNIN=0 bash deploy/scripts/stack_test.sh` (produksi: `https://terka.my.id`). Jika tetap gagal, "Rollback manual" atau perbaiki lalu deploy ulang. Jangan promosikan SHA itu. Pengecualian: SHA dari sebelum langkah ini ada membawa `stack_test.sh` lama yang mengabaikan `TERKA_STACK_URL` dan selalu gagal di sini; untuk SHA seperti itu, perintah laptop di atas yang menentukan |
 | CI `ci` merah di job `stack` | Routing, login, cookie sesi lewat Caddy, atau migrasi rusak pada commit itu. Image tidak diterbitkan, jadi tidak ada yang di-deploy | Baca langkah "Show the stack's logs"; ulangi lokal dengan `make stack STAND_IN=1 && bash deploy/scripts/stack_test.sh` |
+| Deploy API keluar `2` dengan `failed the smoke test` | Versi baru sehat (`/readyz` lulus) tetapi tidak bisa membuat, membaca lewat cookie, atau mencabut sesi. Versi lama terus melayani | Baris `smoke: ...` tepat di atasnya menyebut langkah yang gagal dan status HTTP-nya. Ulangi di container yang sedang jalan untuk membandingkan: `docker exec <container api> /terka smoke; echo $?` |
 | Situs menjawab `502` setelah Caddy dibuat ulang | Container yang sedang berjalan belum bergabung ke `terka-edge` | Langkah 2 di "Migrasi ke network edge" |
 | `DEPRECATION WARNING ... to_native` | Berasal dari collection `ansible.posix` | Abaikan, atau perbarui collection (bagian "Jalan pertama") |
 | API tidak sehat setelah latihan rollback, padahal commitnya sama dengan `main` | Image latihan didorong dengan SHA commit yang sudah ada di `main`, sehingga tag sehat milik CI tertimpa | **[Laptop]** (browser) GitHub, Actions, `ci`, run untuk commit itu, **Re-run all jobs**: membangun ulang image bersih dan memicu `deploy`. Sementara itu, di VPS jalankan `deploy.sh api staging <SHA commit lain yang lulus ci>`. Cegah dengan langkah 2 di "Latihan rollback" |

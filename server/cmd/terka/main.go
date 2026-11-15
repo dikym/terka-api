@@ -33,6 +33,7 @@ commands:
   serve     run the HTTP server
   migrate   apply the embedded schema migrations
   health    exit 0 when the local server is ready
+  smoke     check the session flow against the local server
   version   print the build version
 `
 
@@ -59,6 +60,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return migrateSchema(ctx, getenv, stdout, stderr)
 	case "health":
 		return health(ctx, getenv)
+	case "smoke":
+		return smoke(ctx, getenv, stderr)
 	case "version":
 		tell(stdout, "%s\n", version)
 		return 0
@@ -180,6 +183,39 @@ func health(ctx context.Context, getenv func(string) string) int {
 	}
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
+}
+
+// smoke is run by deploy.sh inside a new container that is healthy but not yet reachable from the
+// edge; a failure keeps it out of traffic.
+func smoke(ctx context.Context, getenv func(string) string, stderr io.Writer) int {
+	cfg, err := config.Load(getenv)
+	if err != nil {
+		tell(stderr, "smoke: %v\n", err)
+		return 1
+	}
+	if cfg.AuthDatabaseURL == "" {
+		tell(stderr, "smoke: TERKA_AUTH_DATABASE_URL is required\n")
+		return 1
+	}
+	_, port, err := net.SplitHostPort(cfg.Addr)
+	if err != nil {
+		tell(stderr, "smoke: TERKA_ADDR: %v\n", err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	authDB, err := db.OpenAuth(ctx, cfg.AuthDatabaseURL)
+	if err != nil {
+		tell(stderr, "smoke: TERKA_AUTH_DATABASE_URL: %v\n", err)
+		return 1
+	}
+	defer authDB.Close()
+	sessions := &auth.Sessions{Auth: authDB, Now: time.Now}
+	if err := auth.Smoke(ctx, sessions, "http://127.0.0.1:"+port, &http.Client{}); err != nil {
+		tell(stderr, "smoke: %v\n", err)
 		return 1
 	}
 	return 0
