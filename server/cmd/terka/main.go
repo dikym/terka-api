@@ -199,7 +199,7 @@ func signIn(ctx context.Context, cfg config.Config, app *db.App, authDB *db.Auth
 	h := &auth.Handlers{
 		Codes: &auth.EmailCodes{
 			Auth: authDB, Sessions: sessions, Keys: keys, Mailer: mailer,
-			Turnstile: auth.NewTurnstile(cfg.TurnstileSecret, cfg.TurnstileHostnames, "", nil),
+			Turnstile: auth.NewTurnstile(cfg.TurnstileSecret, cfg.TurnstileHostnames, cfg.TurnstileEndpoint, nil),
 			PublicURL: cfg.PublicURL, Now: now, Log: log,
 		},
 		Sessions: sessions, Auth: authDB, App: app,

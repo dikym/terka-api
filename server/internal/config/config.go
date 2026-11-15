@@ -24,9 +24,11 @@ type Config struct {
 	GoogleClientSecret string
 	TurnstileSecret    string
 	TurnstileHostnames []string
-	SMTPURL            string
-	MailFrom           string
-	TrustCloudflare    bool
+	// Local only: a stand-in for Cloudflare's siteverify, so the stack test runs without Cloudflare.
+	TurnstileEndpoint string
+	SMTPURL           string
+	MailFrom          string
+	TrustCloudflare   bool
 }
 
 // Local development runs without real accounts: Cloudflare's always-pass Turnstile test secret,
@@ -84,6 +86,7 @@ func Load(getenv func(string) string) (Config, error) {
 		GoogleClientID:     get("TERKA_GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: get("TERKA_GOOGLE_CLIENT_SECRET"),
 		TurnstileSecret:    get("TERKA_TURNSTILE_SECRET"),
+		TurnstileEndpoint:  get("TERKA_TURNSTILE_ENDPOINT"),
 		SMTPURL:            get("TERKA_SMTP_URL"),
 		MailFrom:           get("TERKA_MAIL_FROM"),
 	}
@@ -120,6 +123,10 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if envName != "local" && auth.IsTurnstileTestSecret(cfg.TurnstileSecret) {
 		return Config{}, errors.New("TERKA_TURNSTILE_SECRET is a Cloudflare test secret, which passes anyone")
+	}
+	// Whoever answers the check decides who may ask for an email code.
+	if envName != "local" && cfg.TurnstileEndpoint != "" {
+		return Config{}, errors.New("TERKA_TURNSTILE_ENDPOINT may only be set in the local environment")
 	}
 	if envName != "local" && smtp.Scheme != "smtp+starttls" {
 		return Config{}, errors.New("TERKA_SMTP_URL must use smtp+starttls:// outside the local environment")

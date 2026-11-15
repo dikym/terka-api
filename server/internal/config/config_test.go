@@ -159,6 +159,24 @@ func TestStagingRefusesTurnstileTestSecrets(t *testing.T) {
 	}
 }
 
+func TestLocalCanSendTurnstileChecksElsewhere(t *testing.T) {
+	cfg, err := config.Load(env(map[string]string{"TERKA_ENV": "local", "TERKA_TURNSTILE_ENDPOINT": "http://turnstile:8080/"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TurnstileEndpoint != "http://turnstile:8080/" {
+		t.Fatalf("endpoint = %q, want the one from TERKA_TURNSTILE_ENDPOINT", cfg.TurnstileEndpoint)
+	}
+}
+
+func TestStagingRefusesAnotherTurnstileEndpoint(t *testing.T) {
+	vars := staging()
+	vars["TERKA_TURNSTILE_ENDPOINT"] = "http://turnstile:8080/"
+	if _, err := config.Load(env(vars)); err == nil || !strings.Contains(err.Error(), "TERKA_TURNSTILE_ENDPOINT") {
+		t.Fatalf("err = %v, want one naming TERKA_TURNSTILE_ENDPOINT", err)
+	}
+}
+
 func TestStagingRefusesTheLocalZeroAuthKey(t *testing.T) {
 	vars := staging()
 	vars["TERKA_AUTH_KEY"] = base64.StdEncoding.EncodeToString(make([]byte, 32))
