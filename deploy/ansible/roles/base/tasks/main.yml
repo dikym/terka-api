@@ -57,12 +57,15 @@
 - name: Check the SSH configuration before it is loaded
   ansible.builtin.command: /usr/sbin/sshd -t
   changed_when: false
+  check_mode: false
 
 # Cloud images such as Lighthouse already ship a swap file; a second one only costs disk.
 - name: List the active swap
   ansible.builtin.command: swapon --show=NAME --noheadings
   register: base_active_swap
   changed_when: false
+  # Read-only. Skipped under --check, it would report no swap and send the play into the block below.
+  check_mode: false
 
 # Decided from the live state, not from "the file was just created": a run that died after
 # fallocate leaves an unformatted file, and the next run still finds no swap and finishes it.
