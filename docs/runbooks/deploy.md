@@ -426,21 +426,55 @@ Periksa: setelah push ke `main` dan `ci` hijau, job `staging` di workflow `deplo
 
 ## Latihan rollback
 
-Membuktikan bahwa versi rusak dikembalikan otomatis. Versi rusak tetap melayani lalu lintas sekitar
-20 detik (tidak sehat) sampai 60 detik (tidak pernah sehat) sebelum dikembalikan.
+Membuktikan bahwa versi rusak dikembalikan otomatis. Versi rusak tetap melayani lalu lintas sekitar 20 detik (tidak sehat) sampai 60 detik (tidak pernah sehat) sebelum dikembalikan. Latihan ini di staging, tidak memakai GitHub Actions: image dibangun di laptop, didorong langsung ke GHCR, dan di-deploy manual di VPS.
 
-1. Buat cabang sementara yang merusak health check: untuk API, `/readyz` selalu menjawab 503; untuk
-   UI, hapus `index.html` dari hasil build di Dockerfile.
-2. Bangun image-nya untuk VPS (Mac membangun arm64 secara bawaan) dan dorong ke GHCR tanpa
-   menggabungkannya ke `main`, misalnya untuk API:
+**Prasyarat**
+
+- Layanan yang dilatih sudah ter-deploy dan sehat. `cat /opt/terka/staging/api.current` (atau `web.current`) berisi satu SHA, dan `/healthz` (API) atau `/_app/version.json` (UI) melaporkan SHA itu. Tanpa versi sebelumnya, hasilnya kode `3` dan container dihentikan, bukan rollback.
+- Token GitHub classic untuk mendorong image: nama `terka-drill-ghcr-write`, masa berlaku sependek mungkin, izin hanya `write:packages` (tambahkan `repo` jika `docker push` ditolak). Token VPS hanya `read:packages` dan tidak bisa dipakai di sini. Hapus token ini setelah latihan.
+
+**Langkah**
+
+1. **[Laptop]** Catat SHA sehat: `curl -s https://staging.terka.my.id/healthz`. Buat cabang sementara dari `main` yang merusak health check: untuk API, ubah `if err := d.Ping(ctx); err != nil {` di `server/internal/server/server.go` menjadi `... err != nil || true {` sehingga `/readyz` selalu menjawab 503; untuk UI, hapus `index.html` dari hasil build di Dockerfile. Jangan jalankan `make lint` di cabang ini, dan jangan `git push` cabangnya.
+2. **[Laptop]** **Commit dulu**, baru hitung SHA rusak. SHA itu harus commit baru: tag image adalah SHA commit, dan jika SHA rusak sama dengan commit `main`, `docker push` menimpa image sehat milik CI dengan image rusak, lalu rollback pun gagal karena versi sebelumnya adalah tag yang sama.
    ```sh
-   docker build --platform linux/amd64 -f deploy/Dockerfile --build-arg VERSION=$(git rev-parse HEAD) \
-     -t ghcr.io/dikym/terka-api:$(git rev-parse HEAD) .
-   docker push ghcr.io/dikym/terka-api:$(git rev-parse HEAD)
+   git commit -am "drill: break readyz"
+   git status --porcelain                   # harus kosong
+   export BAD=$(git rev-parse HEAD)
+   git fetch -q && git branch -r --contains "$BAD"   # harus kosong
+   docker manifest inspect ghcr.io/dikym/terka-api:$BAD   # harus gagal: "no such manifest"
    ```
-3. Di VPS: `sudo -iu deploy /opt/terka/bin/deploy.sh api staging <sha rusak>`.
-4. Harapan: kode keluar `2`, dan `/healthz` staging tetap melaporkan SHA sebelumnya.
-5. Hapus cabang dan image-nya dari GHCR.
+   Jika `git branch -r --contains` menampilkan `origin/main`, atau `docker manifest inspect` berhasil, **berhenti**: SHA itu sudah ada di GHCR.
+3. **[Laptop]** Bangun image-nya untuk VPS (Mac membangun arm64 secara bawaan) dan dorong ke GHCR, misalnya untuk API:
+   ```sh
+   echo "<token write:packages>" | docker login ghcr.io -u dikym --password-stdin
+   docker build --platform linux/amd64 -f deploy/Dockerfile --build-arg VERSION=$BAD \
+     -t ghcr.io/dikym/terka-api:$BAD .
+   docker push ghcr.io/dikym/terka-api:$BAD
+   ```
+4. **[Laptop]** Di terminal kedua, pantau versi yang dilayani, dan biarkan berjalan sampai langkah 7:
+   ```sh
+   while sleep 1; do date +%T; curl -s https://staging.terka.my.id/healthz; echo; done
+   ```
+5. **[VPS]** sebagai `deploy` (`ssh terka-admin@<ip-vps>`, lalu `sudo -iu deploy`):
+   ```sh
+   /opt/terka/bin/deploy.sh api staging <SHA rusak>; echo "exit=$?"
+   ```
+6. **[VPS]** Harapan: keluaran memuat `did not turn healthy; rolling back to <SHA sehat>`, `exit=2`, dan `cat /opt/terka/staging/api.current` masih berisi SHA sehat. Container yang berjalan memakai image sehat:
+   ```sh
+   docker inspect -f '{{.Config.Image}}' terka-staging-api-api-1
+   ```
+7. **[Laptop]** Pantauan di langkah 4 menunjukkan `<SHA rusak>` selama beberapa detik, lalu kembali ke `<SHA sehat>`; jumlah detiknya masuk kolom "Lama staging tidak sehat". Setelah itu `curl -s https://staging.terka.my.id/healthz` melaporkan SHA sehat, dan `curl -s -o /dev/null -w '%{http_code}\n' https://staging.terka.my.id/readyz` memberi `200`.
+8. **Bersihkan.** Hapus cabang sementara (`git switch main && git branch -D drill/rollback`) dan image lokal (`docker rmi ghcr.io/dikym/terka-api:$BAD`). Di GitHub, Packages, `terka-api`, hapus versi bertag SHA rusak, dan hapus token `write:packages`. `docker logout ghcr.io`.
+
+**Hasil yang menandakan latihan gagal**
+
+| Gejala | Artinya |
+| --- | --- |
+| `exit=0` | Perubahan tidak membuat `/readyz` gagal; periksa bahwa image berasal dari cabang latihan |
+| `exit=1` | Tarik image atau migration gagal; periksa tag di GHCR dan token VPS. Versi yang berjalan tidak disentuh |
+| `exit=3` | Tidak ada versi sebelumnya; deploy ulang SHA sehat dengan `deploy.sh api staging <SHA sehat>` |
+| `exit=2` tetapi `/healthz` melaporkan SHA rusak, atau `previous version is not healthy either` | Tag SHA sehat tertimpa. Lihat "Masalah umum" |
 
 ### Hasil
 
@@ -463,4 +497,5 @@ Membuktikan bahwa versi rusak dikembalikan otomatis. Versi rusak tetap melayani 
 | CI: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` salah, atau IP-nya berbeda dari `DEPLOY_HOST` | Ambil ulang dengan `ssh-keyscan -t ed25519 <IP VPS> 2>/dev/null` |
 | Deploy berhenti dengan kode keluar `1` | Tarik image gagal atau migration gagal | Periksa token GHCR (belum kedaluwarsa, izin `read:packages`) dan log migration; versi yang berjalan tidak disentuh |
 | `DEPRECATION WARNING ... to_native` | Berasal dari collection `ansible.posix` | Abaikan, atau perbarui collection (bagian "Jalan pertama") |
+| `previous version is not healthy either` setelah latihan rollback, atau API tidak sehat padahal commitnya sama dengan `main` | Image latihan didorong dengan SHA commit yang sudah ada di `main`, sehingga tag sehat milik CI tertimpa | **[Laptop]** (browser) GitHub, Actions, `ci`, run untuk commit itu, **Re-run all jobs**: membangun ulang image bersih dan memicu `deploy`. Sementara itu, di VPS jalankan `deploy.sh api staging <SHA commit lain yang lulus ci>`. Cegah dengan langkah 2 di "Latihan rollback" |
 | `swapon --show` menampilkan dua swap | `/swap.img` bawaan image ditambah `/swapfile` dari playbook versi lama | Aman dibiarkan; playbook sekarang tidak membuat `/swapfile` jika sudah ada swap |
