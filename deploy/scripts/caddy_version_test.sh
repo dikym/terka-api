@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The Caddy base image's version lives in deploy/caddy/VERSION (<caddy release>-p<patch level>).
-# Checks that the Dockerfile builds that release on that release's image, and that the VPS edge
-# runs that exact tag. terka-web/Dockerfile names the same tag and is bumped by hand with it.
+# Checks that the Dockerfile builds that release on that release's image, and that the VPS edge,
+# the local stack and the CI stand-ins run that exact tag. terka-web/Dockerfile names the same tag
+# and is bumped by hand with it.
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -37,6 +38,17 @@ if grep -q "image: ghcr.io/dikym/terka-caddy:$version$" "$repo/deploy/compose.in
 	pass "the VPS edge runs terka-caddy:$version"
 else
 	fail "the VPS edge runs terka-caddy:$version" "$(grep -n 'image:' "$repo/deploy/compose.infra.yaml" | tr '\n' ' ')"
+fi
+if grep -q "image: ghcr.io/dikym/terka-caddy:$version$" "$repo/deploy/compose.local.yaml"; then
+	pass "the local stack's edge runs terka-caddy:$version"
+else
+	fail "the local stack's edge runs terka-caddy:$version" "$(grep -n 'terka-caddy' "$repo/deploy/compose.local.yaml" | tr '\n' ' ')"
+fi
+stand_ins=$(grep -E '^\s*image:' "$repo/deploy/compose.stand-in.yaml")
+if [ -n "$stand_ins" ] && ! grep -qv "image: ghcr.io/dikym/terka-caddy:$version$" <<<"$stand_ins"; then
+	pass "every stand-in runs terka-caddy:$version"
+else
+	fail "every stand-in runs terka-caddy:$version" "$(tr '\n' ' ' <<<"$stand_ins")"
 fi
 
 if [ "$failures" -gt 0 ]; then

@@ -63,6 +63,20 @@ jobs:
           done
           echo "$PUBLIC_URL reports $got, want $SHA"
           exit 1
+      # The smoke test below runs code from the repository; the deploy key has no use left.
+      - &forget-key
+        name: Remove the deploy key
+        run: rm -f ~/.ssh/deploy
+      # Without ref, a workflow_run checks out the head of main, which may be newer than what was
+      # deployed. The deploy step above has already refused anything but a full commit SHA.
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+      - &smoke
+        name: Check the public pages and the signed-out API
+        run: TERKA_STACK_URL="$PUBLIC_URL" TERKA_STACK_SIGNIN=0 bash deploy/scripts/stack_test.sh
 
   production:
     if: github.event_name == 'workflow_dispatch'
@@ -80,3 +94,6 @@ jobs:
       - *ssh-key
       - *deploy
       - *verify
+      - *forget-key
+      - *checkout
+      - *smoke

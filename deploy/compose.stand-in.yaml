@@ -1,0 +1,35 @@
+# Replaces what lies outside this repository in compose.local.yaml, so CI runs the stack without a
+# terka-web checkout or Cloudflare and fails only for changes made here. Use: make stack STAND_IN=1
+# Both stand-ins run the terka-caddy base that the real web image starts from.
+services:
+  # Keeps the web container's contract (an HTML home page, HTML 404s), not its content.
+  web:
+    build: !reset null
+    image: ghcr.io/dikym/terka-caddy:2.11.9-p1
+    volumes:
+      - ./local/web-stand-in.Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Answers Turnstile's siteverify the way Cloudflare answers the always-pass test secret.
+  turnstile:
+    image: ghcr.io/dikym/terka-caddy:2.11.9-p1
+    command:
+      - caddy
+      - respond
+      - --listen
+      - :8080
+      - --header
+      - "Content-Type: application/json"
+      - '{"success":true,"metadata":{"result_with_testing_key":true}}'
+    read_only: true
+
+  api:
+    environment:
+      TERKA_TURNSTILE_ENDPOINT: http://turnstile:8080/
+    depends_on:
+      turnstile:
+        condition: service_started

@@ -4,7 +4,7 @@ VERSION ?= $(shell git rev-parse HEAD 2>/dev/null || echo dev)
 GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 SQLC ?= go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 DEV_COMPOSE := docker compose -f deploy/compose.dev.yaml
-LOCAL_COMPOSE := docker compose -f deploy/compose.local.yaml
+LOCAL_COMPOSE := docker compose -f deploy/compose.local.yaml $(if $(filter 1,$(STAND_IN)),-f deploy/compose.stand-in.yaml)
 # Local only; the terka_dev database never leaves this machine.
 DEV_OWNER_PASSWORD := localdevonlyownerpw
 DEV_APP_PASSWORD := localdevonlyapppw1
@@ -33,7 +33,9 @@ dev: db ## run the api on :8080 with live reload, against the terka_dev database
 caddy: ## build the shared Caddy base image under its published tag
 	docker build -t ghcr.io/dikym/terka-caddy:$$(cat deploy/caddy/VERSION) deploy/caddy
 
-stack: caddy ## build and run api, web, postgres and caddy together on http://localhost:8800
+# Only the real web build starts from the local Caddy base; with the stand-in, the edge pulls the
+# published tag, so a new advisory against a Caddy module does not block API images.
+stack: $(if $(filter 1,$(STAND_IN)),,caddy) ## build and run api, web, postgres and caddy on http://localhost:8800 (STAND_IN=1: no terka-web needed)
 	$(LOCAL_COMPOSE) up -d --build --wait caddy
 
 stack-down: ## stop the local stack (add ARGS=-v to also drop its database)

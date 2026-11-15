@@ -1,0 +1,14 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	header Content-Type "text/html; charset=utf-8"
+	handle / {
+		respond "<!doctype html><title>Terka</title><p>Terka web stand-in" 200
+	}
+	handle {
+		respond "<!doctype html><title>Terka</title><p>Not found" 404
+	}
+}

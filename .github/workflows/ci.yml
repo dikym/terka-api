@@ -71,8 +71,30 @@ jobs:
       - run: bash deploy/scripts/edge_test.sh
       - run: bash deploy/scripts/caddy_version_test.sh
 
+  # The whole system as the VPS routes it, signed in through Caddy. The web is a stand-in, so a
+  # change in terka-web never turns this repository's CI red.
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Pull, not build: rebuilding Caddy here would re-run its vulnerability check and let a new
+      # advisory block API images, which the nightly caddy scan exists to avoid. A commit that bumps
+      # deploy/caddy/VERSION runs before its tag is published, so it builds instead.
+      - name: Get the Caddy base image
+        run: |
+          image="ghcr.io/dikym/terka-caddy:$(cat deploy/caddy/VERSION)"
+          docker pull "$image" || make caddy
+      - run: make stack STAND_IN=1
+      - run: bash deploy/scripts/stack_test.sh
+      - name: Show the stack's logs
+        if: failure()
+        run: docker compose -f deploy/compose.local.yaml -f deploy/compose.stand-in.yaml logs --no-color --tail 200
+
   image:
-    needs: [server, pgtap, scripts]
+    needs: [server, pgtap, scripts, stack]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
