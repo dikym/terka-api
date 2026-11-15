@@ -1,6 +1,7 @@
 # The API of one environment. Lives at /opt/terka/compose.api.yaml; deploy.sh runs it as:
 #   TERKA_ENV_NAME=staging TERKA_IMAGE=ghcr.io/dikym/terka-api:<sha> \
-#     docker compose -p terka-staging-api -f compose.api.yaml up -d api
+#     docker compose -p terka-staging-api -f compose.api.yaml up -d --no-deps --no-recreate --scale api=<n+1> api
+# so the new container starts beside the running one.
 name: terka-${TERKA_ENV_NAME:?set TERKA_ENV_NAME}-api
 
 services:
@@ -10,10 +11,10 @@ services:
     env_file: ${TERKA_ENV_NAME}/.env
     read_only: true
     mem_limit: 128m
-    networks:
-      terka:
-        # The edge Caddy reaches each environment's API by this name.
-        aliases: ["terka-${TERKA_ENV_NAME}-api"]
+    # The server gives running requests 20 seconds after SIGTERM; Docker kills after 10 by default.
+    stop_grace_period: 25s
+    # Postgres only. deploy.sh adds the container to terka-edge, under terka-<env>-api, once healthy.
+    networks: [terka]
 
   migrate:
     image: ${TERKA_IMAGE}

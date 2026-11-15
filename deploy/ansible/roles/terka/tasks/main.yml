@@ -24,6 +24,20 @@
     - { path: staging, mode: "0750" }
     - { path: production, mode: "0750" }
 
+# Outside compose: running containers must join it before Caddy is recreated on it.
+- name: Check for the edge network
+  ansible.builtin.command: docker network inspect terka-edge
+  register: terka_edge_network
+  changed_when: false
+  failed_when: false
+  # Read-only, so it also runs under --check and the next task has an rc to test.
+  check_mode: false
+
+- name: Create the edge network
+  ansible.builtin.command: docker network create terka-edge
+  when: terka_edge_network.rc != 0
+  changed_when: true
+
 - name: Copy the shared infrastructure files
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../{{ item.src }}"

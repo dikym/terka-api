@@ -53,13 +53,23 @@ else
 	fail "the app settings template writes every setting the server requires" "missing:$missing"
 fi
 
-if [ "$(jq -r '.services.api.networks.terka.aliases[0]' <<<"$config")" = terka-staging-api ]; then
-	pass "the edge reaches the api by its environment name"
+grace=$(jq -r '.services.api.stop_grace_period' <<<"$config")
+if [ "$grace" = 25s ]; then
+	pass "the api gets 25 seconds to finish its requests before it is killed"
 else
-	fail "the edge reaches the api by its environment name"
+	fail "the api gets 25 seconds to finish its requests before it is killed" "$grace"
 fi
-web=$(jq -c '.services.web | {env: .environment, alias: .networks.terka.aliases[0], ro: .read_only, mem: .mem_limit}' <<<"$web_config")
-if [ "$web" = '{"env":{"TERKA_ENV":"staging"},"alias":"terka-staging-web","ro":true,"mem":"33554432"}' ]; then
+
+# deploy.sh admits a container to the edge only once it is healthy; an alias here would admit it early.
+edge=$(jq -s -c '[.[].services[] | .networks // {} | to_entries[] | select(.key == "terka-edge" or .value.aliases != null)]' \
+	<<<"$config$web_config")
+if [ "$edge" = '[]' ]; then
+	pass "compose leaves the edge alias to the deploy script"
+else
+	fail "compose leaves the edge alias to the deploy script" "$edge"
+fi
+web=$(jq -c '.services.web | {env: .environment, ro: .read_only, mem: .mem_limit}' <<<"$web_config")
+if [ "$web" = '{"env":{"TERKA_ENV":"staging"},"ro":true,"mem":"33554432"}' ]; then
 	pass "the web container gets only its environment name, read-only, in 32 MiB"
 else
 	fail "the web container gets only its environment name, read-only, in 32 MiB" "$web"

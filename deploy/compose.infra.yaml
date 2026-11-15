@@ -45,11 +45,17 @@ services:
       - ./certs:/certs:ro
       - caddy-data:/data
       - caddy-config:/config
-    networks: [terka]
+    # Not on terka: the edge never reaches Postgres, and sees an api or web container only once
+    # deploy.sh has admitted it.
+    networks: [terka-edge]
 
 networks:
   terka:
     name: terka
+  # Created by Ansible, because running containers must join it before Caddy is recreated on it.
+  terka-edge:
+    name: terka-edge
+    external: true
 
 volumes:
   pgdata:

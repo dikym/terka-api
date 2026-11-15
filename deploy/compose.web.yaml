@@ -1,7 +1,8 @@
 # The web build of one environment, from the terka-web repository. Lives at
 # /opt/terka/compose.web.yaml; deploy.sh runs it as:
 #   TERKA_ENV_NAME=staging TERKA_IMAGE=ghcr.io/dikym/terka-web:<sha> \
-#     docker compose -p terka-staging-web -f compose.web.yaml up -d web
+#     docker compose -p terka-staging-web -f compose.web.yaml up -d --no-deps --no-recreate --scale web=<n+1> web
+# so the new container starts beside the running one.
 name: terka-${TERKA_ENV_NAME:?set TERKA_ENV_NAME}-web
 
 services:
@@ -13,9 +14,8 @@ services:
       TERKA_ENV: ${TERKA_ENV_NAME}
     read_only: true
     mem_limit: 32m
-    networks:
-      terka:
-        aliases: ["terka-${TERKA_ENV_NAME}-web"]
+    # deploy.sh adds the container to terka-edge, under terka-<env>-web, once healthy.
+    networks: [terka]
 
 networks:
   terka:

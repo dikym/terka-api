@@ -298,6 +298,11 @@ Caddy rilis resmi yang dibangun ulang dengan modul yang sudah ditambal. Sumberny
    ls -l /opt/terka/infra/certs   # origin.pem dan origin-key.pem, pemilik deploy, mode 600
    ```
 
+3. Network `terka-edge` ada. Playbook membuatnya; Caddy hanya bergabung ke network ini:
+   ```sh
+   docker network inspect -f '{{.Name}}' terka-edge
+   ```
+
 Nyalakan dan periksa:
 
 ```sh
@@ -355,10 +360,15 @@ sudo -iu deploy /opt/terka/bin/deploy.sh api staging <sha>
 sudo -iu deploy /opt/terka/bin/deploy.sh web staging <sha>
 ```
 
-Kode keluar: `0` berhasil, `1` tarik image atau migration gagal (versi yang jalan tidak disentuh),
-`2` versi baru gagal dijalankan atau tidak sehat, dan versi sebelumnya sudah dijalankan lagi,
-`3` hal yang sama pada deploy pertama, dan containernya dihentikan, `64` argumen salah. Migration
-hanya dijalankan untuk `api`.
+Versi baru dijalankan di samping versi lama. Ia baru menerima lalu lintas setelah sehat, saat
+`deploy.sh` menyambungkannya ke network `terka-edge`. Setelah itu versi lama dihentikan dengan
+memberi permintaan yang sedang berjalan waktu untuk selesai.
+
+Kode keluar: `0` berhasil, `1` deploy lain untuk layanan dan lingkungan yang sama sedang berjalan,
+atau tarik image, migration, atau daftar container gagal (versi yang jalan tidak disentuh),
+`2` versi baru gagal dijalankan, tidak sehat, atau gagal bergabung ke `terka-edge`, lalu dihapus;
+versi lama terus melayani tanpa jeda, `3` hal yang sama pada deploy pertama, dan tidak ada
+container yang tersisa, `64` argumen salah. Migration hanya dijalankan untuk `api`.
 
 Versi yang sedang jalan: `/opt/terka/<env>/api.current` dan `/opt/terka/<env>/web.current`.
 **[Laptop]** Dari luar: `curl -s https://staging.terka.my.id/healthz` (API) dan
@@ -375,6 +385,53 @@ sudo -iu deploy /opt/terka/bin/deploy.sh api staging <sha sebelumnya>
 ```
 
 SHA sebelumnya bisa dilihat di riwayat workflow `deploy` di GitHub atau dengan `git log` di repo.
+
+## Migrasi ke network edge (sekali)
+
+Hanya untuk VPS yang disiapkan sebelum `terka-edge` ada, yaitu ketika Caddy masih di network `terka`
+dan API/UI masih punya alias di sana. VPS baru tidak perlu langkah ini. Urutannya penting: jika
+Caddy dibuat ulang sebelum langkah 2, situs menjawab `502` sampai setiap layanan di setiap
+lingkungan di-deploy ulang.
+
+Jeda deploy selama langkah 1 sampai 3. Langkah 1 sudah memasang `deploy.sh` baru, sedangkan Caddy
+baru pindah ke `terka-edge` di langkah 3. Deploy di antara keduanya memasang container baru hanya di
+`terka-edge`, lalu menghentikan yang lama, sehingga Caddy tidak menemukan apa pun dan menjawab `502`
+sampai langkah 3. Ini juga berlaku untuk deploy staging otomatis setiap push ke `main`, dari kedua
+repo.
+
+0. **[Laptop]** (browser) Di `terka-api` dan `terka-web`: Actions, workflow `deploy`, **⋯**,
+   **Disable workflow**. Jangan push ke `main` sampai langkah 3 selesai.
+1. **[Laptop]** `rsync` versi terbaru `deploy/` ke VPS (langkah 2 "Sekali saja"). **[VPS]** sebagai
+   `ubuntu`, dalam `~/terka-api/deploy/ansible`, periksa sintaks lalu jalankan playbook:
+   ```sh
+   ansible-playbook site.yml --syntax-check
+   ansible-playbook site.yml --ask-vault-pass -e "admin_ssh_public_key='$ADMIN_KEY'"
+   ```
+   Harapan: `failed=0`, dan task "Create the edge network" berstatus `changed`. Playbook juga
+   menyalin `deploy.sh`, berkas compose, dan `Caddyfile.routes` yang baru.
+2. **[VPS]** sebagai `deploy`, sambungkan setiap container API/UI yang sedang berjalan ke
+   `terka-edge` dengan aliasnya:
+   ```sh
+   for env in staging production; do
+     for svc in api web; do
+       for id in $(docker ps -q --filter "label=com.docker.compose.project=terka-$env-$svc"); do
+         docker network connect --alias "terka-$env-$svc" terka-edge "$id"
+       done
+     done
+   done
+   ```
+3. **[VPS]** sebagai `deploy`, buat ulang Caddy di `terka-edge`. Situs tidak bisa diakses beberapa
+   detik. Restart ini wajib: playbook mengganti berkas dengan inode baru, sedangkan Caddy me-mount
+   berkas tunggal, sehingga `caddy reload` masih membaca isi lama.
+   ```sh
+   docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d caddy
+   ```
+   **[Laptop]** Periksa: `curl -s -o /dev/null -w '%{http_code}\n' https://staging.terka.my.id/healthz`
+   memberi `200`, begitu juga `https://terka.my.id/healthz` jika production sudah berjalan. Setelah
+   itu aktifkan lagi workflow `deploy` di kedua repo (**Enable workflow**).
+4. **[VPS]** Deploy ulang API dan UI sekali per lingkungan (bagian "Deploy manual"), supaya setiap
+   container dibuat oleh alur baru. Container lama dari compose masih punya alias di network
+   `terka`, tetapi tidak berpengaruh karena Caddy tidak lagi ada di network itu.
 
 ## Deploy otomatis
 
@@ -426,11 +483,11 @@ Periksa: setelah push ke `main` dan `ci` hijau, job `staging` di workflow `deplo
 
 ## Latihan rollback
 
-Membuktikan bahwa versi rusak dikembalikan otomatis. Versi rusak tetap melayani lalu lintas sekitar 20 detik (tidak sehat) sampai 60 detik (tidak pernah sehat) sebelum dikembalikan. Latihan ini di staging, tidak memakai GitHub Actions: image dibangun di laptop, didorong langsung ke GHCR, dan di-deploy manual di VPS.
+Membuktikan bahwa versi rusak dibuang otomatis tanpa pernah melayani lalu lintas. Versi rusak berjalan di samping versi sehat sampai 60 detik, tetapi tidak disambungkan ke `terka-edge`, jadi Caddy tidak pernah meneruskan permintaan kepadanya. Latihan ini di staging, tidak memakai GitHub Actions: image dibangun di laptop, didorong langsung ke GHCR, dan di-deploy manual di VPS.
 
 **Prasyarat**
 
-- Layanan yang dilatih sudah ter-deploy dan sehat. `cat /opt/terka/staging/api.current` (atau `web.current`) berisi satu SHA, dan `/healthz` (API) atau `/_app/version.json` (UI) melaporkan SHA itu. Tanpa versi sebelumnya, hasilnya kode `3` dan container dihentikan, bukan rollback.
+- Layanan yang dilatih sudah ter-deploy dan sehat. `cat /opt/terka/staging/api.current` (atau `web.current`) berisi satu SHA, dan `/healthz` (API) atau `/_app/version.json` (UI) melaporkan SHA itu. Tanpa versi sebelumnya, hasilnya kode `3` dan tidak ada container yang tersisa.
 - Token GitHub classic untuk mendorong image: nama `terka-drill-ghcr-write`, masa berlaku sependek mungkin, izin hanya `write:packages` (tambahkan `repo` jika `docker push` ditolak). Token VPS hanya `read:packages` dan tidak bisa dipakai di sini. Hapus token ini setelah latihan.
 
 **Langkah**
@@ -460,11 +517,11 @@ Membuktikan bahwa versi rusak dikembalikan otomatis. Versi rusak tetap melayani 
    ```sh
    /opt/terka/bin/deploy.sh api staging <SHA rusak>; echo "exit=$?"
    ```
-6. **[VPS]** Harapan: keluaran memuat `did not turn healthy; rolling back to <SHA sehat>`, `exit=2`, dan `cat /opt/terka/staging/api.current` masih berisi SHA sehat. Container yang berjalan memakai image sehat:
+6. **[VPS]** Harapan: keluaran memuat `<SHA rusak> did not turn healthy`, `<SHA rusak> was not admitted; <SHA sehat> keeps serving`, dan `exit=2`. `cat /opt/terka/staging/api.current` masih berisi SHA sehat. Hanya satu container yang tersisa, dengan image sehat:
    ```sh
-   docker inspect -f '{{.Config.Image}}' terka-staging-api-api-1
+   docker ps -a --filter label=com.docker.compose.project=terka-staging-api --format '{{.Names}} {{.Image}}'
    ```
-7. **[Laptop]** Pantauan di langkah 4 menunjukkan `<SHA rusak>` selama beberapa detik, lalu kembali ke `<SHA sehat>`; jumlah detiknya masuk kolom "Lama staging tidak sehat". Setelah itu `curl -s https://staging.terka.my.id/healthz` melaporkan SHA sehat, dan `curl -s -o /dev/null -w '%{http_code}\n' https://staging.terka.my.id/readyz` memberi `200`.
+7. **[Laptop]** Pantauan di langkah 4 **tidak pernah** menunjukkan `<SHA rusak>`. Jumlah detik ia muncul masuk kolom "Lama staging tidak sehat", dan harapannya `0`. Selain itu `curl -s https://staging.terka.my.id/healthz` melaporkan SHA sehat, dan `curl -s -o /dev/null -w '%{http_code}\n' https://staging.terka.my.id/readyz` memberi `200`.
 8. **Bersihkan.** Hapus cabang sementara (`git switch main && git branch -D drill/rollback`) dan image lokal (`docker rmi ghcr.io/dikym/terka-api:$BAD`). Di GitHub, Packages, `terka-api`, hapus versi bertag SHA rusak, dan hapus token `write:packages`. `docker logout ghcr.io`.
 
 **Hasil yang menandakan latihan gagal**
@@ -474,7 +531,8 @@ Membuktikan bahwa versi rusak dikembalikan otomatis. Versi rusak tetap melayani 
 | `exit=0` | Perubahan tidak membuat `/readyz` gagal; periksa bahwa image berasal dari cabang latihan |
 | `exit=1` | Tarik image atau migration gagal; periksa tag di GHCR dan token VPS. Versi yang berjalan tidak disentuh |
 | `exit=3` | Tidak ada versi sebelumnya; deploy ulang SHA sehat dengan `deploy.sh api staging <SHA sehat>` |
-| `exit=2` tetapi `/healthz` melaporkan SHA rusak, atau `previous version is not healthy either` | Tag SHA sehat tertimpa. Lihat "Masalah umum" |
+| `/healthz` sempat melaporkan SHA rusak | Container rusak tersambung ke `terka-edge`; periksa bahwa `/opt/terka/bin/deploy.sh` sudah versi terbaru (jalankan playbook) |
+| `exit=2` tetapi `/healthz` tidak sehat | Tag SHA sehat tertimpa. Lihat "Masalah umum" |
 
 ### Hasil
 
@@ -496,6 +554,9 @@ Membuktikan bahwa versi rusak dikembalikan otomatis. Versi rusak tetap melayani 
 | CI: `Permission denied (publickey)` | Kunci publik CI belum terpasang di VPS, atau kunci privat di secret bukan pasangannya | `sudo cat /home/deploy/.ssh/authorized_keys` di VPS; ulangi langkah 2 "Menyiapkan sekali" |
 | CI: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` salah, atau IP-nya berbeda dari `DEPLOY_HOST` | Ambil ulang dengan `ssh-keyscan -t ed25519 <IP VPS> 2>/dev/null` |
 | Deploy berhenti dengan kode keluar `1` | Tarik image gagal atau migration gagal | Periksa token GHCR (belum kedaluwarsa, izin `read:packages`) dan log migration; versi yang berjalan tidak disentuh |
+| Deploy keluar `2` dengan `could not join terka-edge` dan `network terka-edge not found` | Playbook belum dijalankan sejak `terka-edge` diperkenalkan | Jalankan playbook (bagian "Jalan berikutnya"), lalu ikuti "Migrasi ke network edge". Versi lama tetap melayani selama itu |
+| `another deploy of api in staging is running`, padahal tidak ada deploy yang berjalan | Deploy sebelumnya dimatikan paksa (`SIGKILL`, VPS reboot) sehingga kuncinya tertinggal | **[VPS]** Pastikan tidak ada `deploy.sh` yang berjalan (`pgrep -af deploy.sh`), lalu sebagai `deploy`: `rmdir /opt/terka/staging/api.lock` (sesuaikan lingkungan dan layanan) |
+| Situs menjawab `502` setelah Caddy dibuat ulang | Container yang sedang berjalan belum bergabung ke `terka-edge` | Langkah 2 di "Migrasi ke network edge" |
 | `DEPRECATION WARNING ... to_native` | Berasal dari collection `ansible.posix` | Abaikan, atau perbarui collection (bagian "Jalan pertama") |
-| `previous version is not healthy either` setelah latihan rollback, atau API tidak sehat padahal commitnya sama dengan `main` | Image latihan didorong dengan SHA commit yang sudah ada di `main`, sehingga tag sehat milik CI tertimpa | **[Laptop]** (browser) GitHub, Actions, `ci`, run untuk commit itu, **Re-run all jobs**: membangun ulang image bersih dan memicu `deploy`. Sementara itu, di VPS jalankan `deploy.sh api staging <SHA commit lain yang lulus ci>`. Cegah dengan langkah 2 di "Latihan rollback" |
+| API tidak sehat setelah latihan rollback, padahal commitnya sama dengan `main` | Image latihan didorong dengan SHA commit yang sudah ada di `main`, sehingga tag sehat milik CI tertimpa | **[Laptop]** (browser) GitHub, Actions, `ci`, run untuk commit itu, **Re-run all jobs**: membangun ulang image bersih dan memicu `deploy`. Sementara itu, di VPS jalankan `deploy.sh api staging <SHA commit lain yang lulus ci>`. Cegah dengan langkah 2 di "Latihan rollback" |
 | `swapon --show` menampilkan dua swap | `/swap.img` bawaan image ditambah `/swapfile` dari playbook versi lama | Aman dibiarkan; playbook sekarang tidak membuat `/swapfile` jika sudah ada swap |

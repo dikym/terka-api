@@ -1,12 +1,22 @@
 # How one environment's traffic is split. Imported by the VPS Caddyfile, the local stack and the
 # edge test, so all three route identically. Usage: import routes <prefix>, where the containers
 # answer as <prefix>-api and <prefix>-web.
+#
+# A deploy swaps containers behind each name, so a dial can briefly fail or find no container.
+# Caddy retries a failed dial for any method, but re-sends after a failed round trip only for GET,
+# so a write is never sent twice.
 (routes) {
 	@api path /api /api/* /healthz /readyz
 	handle @api {
-		reverse_proxy {args[0]}-api:8080
+		reverse_proxy {args[0]}-api:8080 {
+			lb_try_duration 10s
+			lb_try_interval 250ms
+		}
 	}
 	handle {
-		reverse_proxy {args[0]}-web:8080
+		reverse_proxy {args[0]}-web:8080 {
+			lb_try_duration 10s
+			lb_try_interval 250ms
+		}
 	}
 }
