@@ -110,4 +110,4 @@ Create the folders if they do not exist. This location **replaces** the skill's 
 
 ### After Implementation Is Complete
 
-After a plan's implementation is complete, delete that feature's plan file from `docs/superpowers/plans/`. The API spec (`2026-11-14-api-server-design.md`) and the task list (`2026-11-14-rewrite-tasks-api.md`) are kept until the rewrite's final stage is done, because each next stage's plan is written from them.
+After a plan's implementation is complete, delete that feature's spec and plan files from `docs/superpowers/specs/` and `docs/superpowers/plans/`. Do not delete `.gitkeep`. The exception is the rewrite documents: the API spec (`2026-11-14-api-server-design.md`), the auth spec (`2026-11-13-auth-design.md`), and the task list (`2026-11-14-rewrite-tasks-api.md`) are kept until the rewrite's final stage is done, because each next stage's plan is written from them.
