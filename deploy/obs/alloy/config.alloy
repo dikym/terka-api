@@ -105,6 +105,20 @@ loki.source.journal "host" {
 }
 
 loki.process "json" {
+	// A Postgres DETAIL line quotes the row's key values, such as an email.
+	stage.match {
+		selector            = "{container=~\"terka-infra-postgres-.+\"} |= \"DETAIL:\""
+		action              = "drop"
+		drop_counter_reason = "postgres_detail"
+	}
+
+	// The firewall logs the source address of every packet it blocks.
+	stage.match {
+		selector            = "{job=\"kernel\"} |= \"UFW BLOCK\""
+		action              = "drop"
+		drop_counter_reason = "firewall_block"
+	}
+
 	// Lines that are not JSON (kernel, most system services) pass through unparsed.
 	stage.json {
 		expressions = {level = "", trace_id = ""}
