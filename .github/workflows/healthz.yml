@@ -11,6 +11,12 @@ permissions:
   actions: read
   contents: read
 
+# Each run compares against the last finished one, so two at once could both post the same change.
+# A run that has started is left to post; a newer run waits for it and then sees its result.
+concurrency:
+  group: healthz
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
