@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -57,7 +58,7 @@ func Setup(ctx context.Context, o Options, log *slog.Logger) (func(context.Conte
 
 	res := Resource(o)
 	tp := NewTracerProvider(res, sdktrace.WithBatcher(traceExp))
-	mp := sdkmetric.NewMeterProvider(
+	mp := NewMeterProvider(
 		sdkmetric.WithResource(res),
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp, sdkmetric.WithInterval(30*time.Second))),
 	)
@@ -71,6 +72,16 @@ func Setup(ctx context.Context, o Options, log *slog.Logger) (func(context.Conte
 	return func(ctx context.Context) error {
 		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx))
 	}, nil
+}
+
+// NewMeterProvider corrects the unit of otelpgx's query duration: v0.9.4 records milliseconds under
+// the unit "s", which Prometheus would name _seconds.
+func NewMeterProvider(opts ...sdkmetric.Option) *sdkmetric.MeterProvider {
+	pgxDuration := sdkmetric.NewView(
+		sdkmetric.Instrument{Name: "db.client.operation.duration", Scope: instrumentation.Scope{Name: "github.com/exaring/otelpgx"}},
+		sdkmetric.Stream{Unit: "ms"},
+	)
+	return sdkmetric.NewMeterProvider(append(opts, sdkmetric.WithView(pgxDuration))...)
 }
 
 // NewTracerProvider always redacts url.query, which can carry OAuth codes and email tokens.

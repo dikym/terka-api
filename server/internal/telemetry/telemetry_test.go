@@ -8,8 +8,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/exaring/otelpgx"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -95,4 +99,27 @@ func TestQueryStringIsRedactedOnEverySpan(t *testing.T) {
 	if !found {
 		t.Fatal("url.query attribute missing")
 	}
+}
+
+func TestDatabaseQueryDurationIsInMilliseconds(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	tracer := otelpgx.NewTracer(otelpgx.WithMeterProvider(telemetry.NewMeterProvider(sdkmetric.WithReader(reader))))
+	ctx := tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: "select 1"})
+	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == "db.client.operation.duration" {
+				if m.Unit != "ms" {
+					t.Fatalf("unit %q, want ms", m.Unit)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("no db.client.operation.duration metric")
 }
