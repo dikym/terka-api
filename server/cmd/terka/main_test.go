@@ -69,6 +69,12 @@ func env(pairs map[string]string) func(string) string {
 
 func startServe(t *testing.T, vars map[string]string) (string, context.CancelFunc, <-chan int) {
 	t.Helper()
+	base, stop, done, _ := startServeLogged(t, vars)
+	return base, stop, done
+}
+
+func startServeLogged(t *testing.T, vars map[string]string) (string, context.CancelFunc, <-chan int, *syncBuffer) {
+	t.Helper()
 	vars["TERKA_ADDR"] = "127.0.0.1:0"
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -80,7 +86,7 @@ func startServe(t *testing.T, vars map[string]string) (string, context.CancelFun
 		for _, line := range strings.Split(logs.String(), "\n") {
 			var entry struct{ Msg, Addr string }
 			if json.Unmarshal([]byte(line), &entry) == nil && entry.Msg == "listening" {
-				return "http://" + entry.Addr, cancel, done
+				return "http://" + entry.Addr, cancel, done, logs
 			}
 		}
 		select {
@@ -90,7 +96,7 @@ func startServe(t *testing.T, vars map[string]string) (string, context.CancelFun
 		}
 	}
 	t.Fatalf("serve never reported its address: %s", logs.String())
-	return "", nil, nil
+	return "", nil, nil, nil
 }
 
 func status(t *testing.T, url string) int {
@@ -116,6 +122,50 @@ func TestServeStopsWhenContextEnds(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not stop within 5s")
+	}
+}
+
+func TestServeAnswersQuicklyWhenTheCollectorIsUnreachable(t *testing.T) {
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := closed.Addr().String()
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	base, stop, done, logs := startServeLogged(t, map[string]string{"TERKA_ENV": "local", "TERKA_OTLP_ENDPOINT": endpoint})
+	// Speculative keep-alive dials leave connections the server only drops after 5s of shutdown.
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	for i := 0; i < 20; i++ {
+		begin := time.Now()
+		res, err := client.Get(base + "/healthz")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != 200 {
+			t.Fatalf("healthz = %d, want 200", res.StatusCode)
+		}
+		if took := time.Since(begin); took > 200*time.Millisecond {
+			t.Fatalf("request %d took %s", i, took)
+		}
+	}
+	begin := time.Now()
+	stop()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("serve did not stop within 5s: %s", logs.String())
+	}
+	if took := time.Since(begin); took > 5*time.Second {
+		t.Fatalf("shutdown took %s", took)
+	}
+	if !strings.Contains(logs.String(), "telemetry") {
+		t.Fatalf("the unreachable collector was never reported: %s", logs.String())
 	}
 }
 

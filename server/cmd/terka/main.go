@@ -15,12 +15,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel"
 
 	"github.com/dikym/terka-api/server/internal/auth"
 	"github.com/dikym/terka-api/server/internal/config"
 	"github.com/dikym/terka-api/server/internal/db"
 	"github.com/dikym/terka-api/server/internal/migrate"
 	"github.com/dikym/terka-api/server/internal/server"
+	"github.com/dikym/terka-api/server/internal/telemetry"
 	"github.com/dikym/terka-api/server/migrations"
 )
 
@@ -77,7 +79,15 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 		tell(stderr, "%v\n", err)
 		return 1
 	}
-	log := slog.New(slog.NewJSONHandler(stderr, nil))
+	log := slog.New(telemetry.LogHandler(slog.NewJSONHandler(stderr, nil)))
+
+	// Providers must be installed before server.New and the pools: both capture them when built.
+	stopTelemetry, err := telemetry.Setup(ctx, telemetry.Options{
+		Endpoint: cfg.OTLPEndpoint, Service: "terka-api", Version: version, Env: cfg.Env}, log)
+	if err != nil {
+		tell(stderr, "telemetry: %v\n", err)
+		return 1
+	}
 
 	deps := server.Deps{Version: version, Env: cfg.Env, Logger: log,
 		Ping: func(context.Context) error { return errors.New("no database configured") }}
@@ -97,7 +107,12 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 		defer authDB.Close()
 		deps.Ping = func(ctx context.Context) error { return errors.Join(app.Ping(ctx), authDB.Ping(ctx)) }
 
-		handlers, err := signIn(ctx, cfg, app, authDB, log)
+		metrics, err := auth.NewMetrics(otel.GetMeterProvider())
+		if err != nil {
+			tell(stderr, "telemetry: %v\n", err)
+			return 1
+		}
+		handlers, err := signIn(ctx, cfg, app, authDB, log, metrics)
 		if err != nil {
 			tell(stderr, "%v\n", err)
 			return 1
@@ -132,6 +147,11 @@ func serve(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 	if err := srv.Shutdown(shutdown); err != nil {
 		log.Error("shutdown did not finish cleanly", "error", err)
 		return 1
+	}
+	flush, cancelFlush := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelFlush()
+	if err := stopTelemetry(flush); err != nil {
+		log.Error("telemetry shutdown failed", "error", err)
 	}
 	return 0
 }
@@ -221,7 +241,7 @@ func smoke(ctx context.Context, getenv func(string) string, stderr io.Writer) in
 	return 0
 }
 
-func signIn(ctx context.Context, cfg config.Config, app *db.App, authDB *db.Auth, log *slog.Logger) (*auth.Handlers, error) {
+func signIn(ctx context.Context, cfg config.Config, app *db.App, authDB *db.Auth, log *slog.Logger, metrics *auth.Metrics) (*auth.Handlers, error) {
 	keys, err := auth.DeriveKeys(cfg.AuthKey)
 	if err != nil {
 		return nil, err
@@ -236,10 +256,10 @@ func signIn(ctx context.Context, cfg config.Config, app *db.App, authDB *db.Auth
 		Codes: &auth.EmailCodes{
 			Auth: authDB, Sessions: sessions, Keys: keys, Mailer: mailer,
 			Turnstile: auth.NewTurnstile(cfg.TurnstileSecret, cfg.TurnstileHostnames, cfg.TurnstileEndpoint, nil),
-			PublicURL: cfg.PublicURL, Now: now, Log: log,
+			PublicURL: cfg.PublicURL, Now: now, Log: log, Metrics: metrics,
 		},
 		Sessions: sessions, Auth: authDB, App: app,
-		Env: cfg.Env, TrustCloudflare: cfg.TrustCloudflare, Log: log, Now: now,
+		Env: cfg.Env, TrustCloudflare: cfg.TrustCloudflare, Log: log, Now: now, Metrics: metrics,
 	}
 	if cfg.GoogleClientID != "" {
 		h.Google = auth.NewGoogle(ctx, auth.GoogleProvider, cfg.GoogleClientID, cfg.GoogleClientSecret,
