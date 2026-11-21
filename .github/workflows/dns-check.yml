@@ -1,0 +1,31 @@
+# A missing SPF, DKIM or DMARC record silently sends login emails to spam, so check weekly.
+name: dns-check
+
+on:
+  schedule:
+    - cron: "0 1 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the email DNS records
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_PRODUCTION }}
+        run: |
+          code=0
+          problems=$(bash deploy/scripts/dns-check.sh) || code=$?
+          if [ "$code" -ne 0 ]; then
+            printf '%s\n' "$problems"
+            jq -n --arg content "$(printf 'Email DNS check failed:\n%s' "$problems")" '{content: $content}' |
+              curl -fsS -H 'content-type: application/json' -d @- "$WEBHOOK"
+          fi
+          exit "$code"

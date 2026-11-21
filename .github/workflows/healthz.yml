@@ -1,0 +1,41 @@
+# Watches staging from outside the VPS and posts to Discord only when the state changes. A
+# scheduled workflow runs on the default branch only.
+name: healthz
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check /healthz
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Only success and failure count: a cancelled or skipped run says nothing about staging.
+          previous=$(gh run list --workflow healthz.yml --status completed --limit 10 --json conclusion \
+            -q '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].conclusion // ""')
+          code=0
+          state=$(bash deploy/scripts/healthz-check.sh https://staging.terka.my.id/healthz "$previous") || code=$?
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          exit "$code"
+      - name: Tell Discord
+        if: always() && (steps.check.outputs.state == 'down' || steps.check.outputs.state == 'up')
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_STAGING }}
+          STATE: ${{ steps.check.outputs.state }}
+        run: |
+          if [ "$STATE" = down ]; then text="staging.terka.my.id/healthz tidak menjawab"; else text="staging.terka.my.id/healthz pulih"; fi
+          jq -n --arg content "$text" '{content: $content}' | curl -fsS -H 'content-type: application/json' -d @- "$WEBHOOK"
