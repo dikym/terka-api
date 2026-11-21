@@ -1,10 +1,12 @@
+import /etc/caddy/Caddyfile.routes
+
+# Imported first, because the global options use its redacted_logs snippet.
 {
 	servers {
 		metrics
 	}
+	import redacted_logs
 }
-
-import /etc/caddy/Caddyfile.routes
 
 # Cloudflare connects over 443 with Full (strict) TLS and checks this Origin CA certificate.
 staging.terka.my.id {

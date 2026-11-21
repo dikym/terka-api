@@ -43,21 +43,26 @@ grafana_id=$(docker run -d --network "$network" --network-alias grafana "$stand_
 containers+=("$grafana_id")
 
 cat >"$work/Caddyfile" <<'CADDY'
+import /etc/caddy/Caddyfile.routes
 {
 	auto_https off
+	import redacted_logs
 }
-import /etc/caddy/Caddyfile.routes
 http://grafana.terka.my.id:8443 {
 	import grafana
+}
+http://broken.terka.my.id:8443 {
+	reverse_proxy terka-missing-api:8080
 }
 :8443 {
 	import routes terka-staging
 }
 CADDY
-containers+=("$(docker run -d --network "$network" -p 127.0.0.1:18095:8443 \
+edge_id=$(docker run -d --network "$network" -p 127.0.0.1:18095:8443 \
 	-v "$work/Caddyfile:/etc/caddy/Caddyfile:ro" \
 	-v "$repo/deploy/Caddyfile.routes:/etc/caddy/Caddyfile.routes:ro" \
-	"$edge_image")")
+	"$edge_image")
+containers+=("$edge_id")
 
 for _ in $(seq 1 50); do
 	curl -s -o /dev/null http://127.0.0.1:18095/ && break
@@ -83,6 +88,28 @@ if [ "$code" = 403 ] && [ "$(requests)" = 0 ]; then pass "$name"; else fail "$na
 name="grafana with an access token is proxied"
 got=$(curl -s -H 'Host: grafana.terka.my.id' -H 'Cf-Access-Jwt-Assertion: x' http://127.0.0.1:18095/)
 if [ "$got" = grafana ] && [ "$(requests)" = 1 ]; then pass "$name"; else fail "$name" "got: ${got:-nothing}"; fi
+
+for file in Caddyfile Caddyfile.local; do
+	name="$file keeps request details out of its logs"
+	if grep -q '^	import redacted_logs$' "$repo/deploy/$file"; then pass "$name"; else fail "$name"; fi
+done
+# Caddy's error log records the request, and its lines reach Loki.
+code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: broken.terka.my.id' \
+	-H 'Cf-Connecting-Ip: 203.0.113.7' -H 'X-Forwarded-For: 203.0.113.8' \
+	-H 'Cf-Access-Jwt-Assertion: jwt-secret-value' -H 'Cf-Access-Authenticated-User-Email: someone@example.com' \
+	'http://127.0.0.1:18095/api/auth/google/callback?code=code-secret-value&state=state-secret-value')
+docker logs "$edge_id" >"$work/edge.log" 2>&1
+name="a failed request is still logged"
+if [ "$code" = 502 ] && grep -q '"logger":"http.log.error".*"uri":"/api/auth/google/callback"' "$work/edge.log"; then
+	pass "$name"
+else
+	fail "$name" "got: $code"
+fi
+for secret in 203.0.113 jwt-secret-value someone@example.com code-secret-value state-secret-value \
+	'"remote_ip"' '"client_ip"' '"headers"'; do
+	name="the edge log leaves out $secret"
+	if grep -qF "$secret" "$work/edge.log"; then fail "$name"; else pass "$name"; fi
+done
 
 # A deploy replaces the api container: for a moment no container answers to the alias at all.
 docker rm -f "$api_id" >/dev/null

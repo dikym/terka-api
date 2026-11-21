@@ -21,6 +21,23 @@
 	}
 }
 
+# Imported inside the global options block, so the file that uses it imports this one before that
+# block. Caddy's error log records the whole request, and its lines are shipped to Loki: drop the
+# client addresses, every header (Cloudflare's client IP, the Access JWT and email) and the query
+# string, which carries the OAuth code and state.
+(redacted_logs) {
+	log {
+		format filter {
+			wrap json
+			request>remote_ip delete
+			request>remote_port delete
+			request>client_ip delete
+			request>headers delete
+			request>uri regexp \?.* ""
+		}
+	}
+}
+
 # Grafana trusts the Cloudflare Access JWT, so a request that reached the origin without one did
 # not pass through Access and must not reach it. "header <field> *" matches an empty value, so a
 # regexp requires at least one character.

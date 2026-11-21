@@ -1,9 +1,11 @@
+import /etc/caddy/Caddyfile.routes
+
+# Imported first, because the global options use its redacted_logs snippet.
 {
 	auto_https off
 	admin off
+	import redacted_logs
 }
-
-import /etc/caddy/Caddyfile.routes
 
 :8800 {
 	import routes terka-local
