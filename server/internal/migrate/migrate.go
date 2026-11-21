@@ -7,12 +7,22 @@ import (
 	"io/fs"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 // One fixed key, so two deploys that start together apply each file once.
 const lockKey = 7_265_731_642
+
+// A run that cannot get the migration lock in this time fails rather than hanging the deploy.
+var lockWait = time.Minute
+
+// DDL queues every later query on its table behind it while it waits for a lock, so a file that
+// meets a long app transaction fails fast instead of stalling the serving API.
+var fileLockTimeout = 5 * time.Second
+
+func lockTimeout(d time.Duration) string { return fmt.Sprintf("%dms", d.Milliseconds()) }
 
 const bookkeeping = `
 create schema if not exists terka;
@@ -24,6 +34,10 @@ create table if not exists terka.schema_migrations (
 // Apply runs every *.sql file in files that is not yet recorded and returns the versions it ran.
 // A recorded version with no file is left alone: that is what an older image sees after a rollback.
 func Apply(ctx context.Context, conn *pgx.Conn, files fs.FS) (applied []string, err error) {
+	// lock_timeout also bounds the wait for an advisory lock.
+	if _, err := conn.Exec(ctx, "select set_config('lock_timeout', $1, false)", lockTimeout(lockWait)); err != nil {
+		return nil, fmt.Errorf("set lock_timeout: %w", err)
+	}
 	if _, err := conn.Exec(ctx, "select pg_advisory_lock($1)", lockKey); err != nil {
 		return nil, fmt.Errorf("take the migration lock: %w", err)
 	}
@@ -70,6 +84,9 @@ func applyFile(ctx context.Context, conn *pgx.Conn, files fs.FS, name, version s
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	return pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "select set_config('lock_timeout', $1, true)", lockTimeout(fileLockTimeout)); err != nil {
+			return fmt.Errorf("%s: set lock_timeout: %w", name, err)
+		}
 		// The simple protocol lets one file hold many statements, including function bodies.
 		if _, err := tx.Exec(ctx, string(body), pgx.QueryExecModeSimpleProtocol); err != nil {
 			return fmt.Errorf("%s: %w", name, err)

@@ -161,6 +161,57 @@ func TestApplySerializesConcurrentRuns(t *testing.T) {
 	}
 }
 
+func assertLockTimeout(t *testing.T, err error, file string) {
+	t.Helper()
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "55P03" || !strings.Contains(err.Error(), file) {
+		t.Fatalf("err = %v, want lock_not_available (55P03) naming %q", err, file)
+	}
+}
+
+func TestApplyGivesUpWhileAnotherRunHoldsTheLock(t *testing.T) {
+	db := dbtest.New(t)
+	holder := connect(t, db.OwnerURL)
+	if _, err := holder.Exec(context.Background(), "select pg_advisory_lock($1)", migrate.LockKey); err != nil {
+		t.Fatal(err)
+	}
+	migrate.SetLockTimeouts(t, 200*time.Millisecond, time.Second)
+
+	start := time.Now()
+	_, err := migrate.Apply(context.Background(), connect(t, db.OwnerURL), sqlFiles(map[string]string{"1_a.sql": "create table a ();"}))
+	assertLockTimeout(t, err, "migration lock")
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Fatalf("gave up after %v, want about 200ms", waited)
+	}
+}
+
+func TestApplyFailsAFileThatWaitsTooLongForATableLock(t *testing.T) {
+	db := dbtest.New(t)
+	conn := connect(t, db.OwnerURL)
+	if _, err := migrate.Apply(context.Background(), conn, sqlFiles(map[string]string{"1_a.sql": "create table a (id int);"})); err != nil {
+		t.Fatal(err)
+	}
+	// A long app transaction still reading the table.
+	reader, err := connect(t, db.OwnerURL).Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Rollback(context.Background()) }()
+	if _, err := reader.Exec(context.Background(), "select * from a"); err != nil {
+		t.Fatal(err)
+	}
+	migrate.SetLockTimeouts(t, time.Second, 200*time.Millisecond)
+
+	applied, err := migrate.Apply(context.Background(), conn, sqlFiles(map[string]string{
+		"1_a.sql":     "create table a (id int);",
+		"2_alter.sql": "alter table a add column note text;",
+	}))
+	assertLockTimeout(t, err, "2_alter.sql")
+	if len(applied) != 0 {
+		t.Fatalf("applied = %v, want nothing", applied)
+	}
+}
+
 func TestEmbeddedMigrationsApplyAsOwner(t *testing.T) {
 	conn := connect(t, dbtest.New(t).OwnerURL)
 	if _, err := migrate.Apply(context.Background(), conn, migrations.Files); err != nil {
