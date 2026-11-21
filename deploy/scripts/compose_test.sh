@@ -95,11 +95,11 @@ if [ "$default" = 'alloy grafana loki prometheus ' ]; then
 else
 	fail "tempo starts only when its profile is asked for" "$default"
 fi
-mem=$(jq -c -S '.services | map_values(.mem_limit)' <<<"$obs")
-if [ "$mem" = '{"alloy":"201326592","grafana":"335544320","loki":"201326592","prometheus":"201326592","tempo":"335544320"}' ]; then
-	pass "each observability service has its memory limit"
+mem=$(jq -c -S '.services | map_values([.mem_limit, .environment.GOMEMLIMIT])' <<<"$obs")
+if [ "$mem" = '{"alloy":["201326592","163MiB"],"grafana":["335544320","272MiB"],"loki":["201326592","163MiB"],"prometheus":["201326592","163MiB"],"tempo":["335544320","272MiB"]}' ]; then
+	pass "each observability service has its memory limit with the Go heap capped below it"
 else
-	fail "each observability service has its memory limit" "$mem"
+	fail "each observability service has its memory limit with the Go heap capped below it" "$mem"
 fi
 ports=$(jq -c '[.services | to_entries[] | select(.value.ports) | {(.key): [.value.ports[] | "\(.host_ip):\(.published):\(.target)"]}] | add' <<<"$obs")
 if [ "$ports" = '{"grafana":["127.0.0.1:3000:3000"]}' ]; then
@@ -115,13 +115,14 @@ else
 fi
 # The Docker socket, /var/lib/docker and the host root hold every container's secrets.
 alloy=$(jq -c --arg w "$work/obs/" '.services.alloy
-	| {user, group_add, binds: [.volumes[] | select(.type == "bind") | "\(.source | ltrimstr($w)):\(.read_only // false)"]}' <<<"$obs")
-if [ "$alloy" = '{"user":"65534:65534","group_add":["999","473"],"binds":["/var/log/journal:true","/run/log/journal:true","/etc/machine-id:true","alloy:true"]}' ]; then
+	| {user, group_add, privileged, pid, cap_add, devices, network_mode,
+		binds: [.volumes[] | select(.type == "bind") | "\(.source | ltrimstr($w)):\(.read_only // false)"]}' <<<"$obs")
+if [ "$alloy" = '{"user":"65534:65534","group_add":["999","473"],"privileged":null,"pid":null,"cap_add":null,"devices":null,"network_mode":null,"binds":["/var/log/journal:true","/run/log/journal:true","/etc/machine-id:true","alloy:true"]}' ]; then
 	pass "alloy runs unprivileged and reads only the journal and its config"
 else
 	fail "alloy runs unprivileged and reads only the journal and its config" "$alloy"
 fi
-foreign=$(jq -r '.services[].environment // {} | keys[]' <<<"$obs" | grep -v '^GF_' | grep -vx TERKA_MONITOR_DSN | sort -u | tr '\n' ' ')
+foreign=$(jq -r '.services[].environment // {} | keys[]' <<<"$obs" | grep -v '^GF_' | grep -vxE 'TERKA_MONITOR_DSN|GOMEMLIMIT' | sort -u | tr '\n' ' ')
 if [ -z "$foreign" ] && jq -e '.services.alloy.environment.TERKA_MONITOR_DSN' <<<"$obs" >/dev/null; then
 	pass "the observability stack reads its own settings and none of the app's"
 else

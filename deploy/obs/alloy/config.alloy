@@ -71,6 +71,14 @@ prometheus.scrape "default" {
 loki.relabel "journal" {
   forward_to = []
 
+  // Only container output and kernel messages: host units such as sshd log client IP addresses.
+  // This also applies to the backlog read on first start.
+  rule {
+    source_labels = ["__journal_container_name", "__journal__transport"]
+    regex         = ".+;.*|;kernel"
+    action        = "keep"
+  }
+
   rule {
     source_labels = ["__journal_container_name"]
     target_label  = "container"

@@ -20,6 +20,9 @@ services:
     group_add: ["${JOURNAL_GID:?set JOURNAL_GID}", "473"]
     read_only: true
     mem_limit: 192m
+    # About 85% of mem_limit on every Go service, so the runtime collects harder before the kernel kills it.
+    environment:
+      GOMEMLIMIT: 163MiB
     volumes:
       - /var/log/journal:/var/log/journal:ro
       - /run/log/journal:/run/log/journal:ro
@@ -39,6 +42,8 @@ services:
       - --web.enable-remote-write-receiver
     read_only: true
     mem_limit: 192m
+    environment:
+      GOMEMLIMIT: 163MiB
     volumes:
       - ./prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
@@ -50,6 +55,8 @@ services:
     command: ["-config.file=/etc/loki/loki.yaml"]
     read_only: true
     mem_limit: 192m
+    environment:
+      GOMEMLIMIT: 163MiB
     volumes:
       - ./loki:/etc/loki:ro
       - loki-data:/loki
@@ -62,6 +69,8 @@ services:
     env_file: grafana.env
     read_only: true
     mem_limit: 320m
+    environment:
+      GOMEMLIMIT: 272MiB
     volumes:
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -79,6 +88,8 @@ services:
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     read_only: true
     mem_limit: 320m
+    environment:
+      GOMEMLIMIT: 272MiB
     volumes:
       - ./tempo:/etc/tempo:ro
       - tempo-data:/var/tempo
