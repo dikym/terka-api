@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -22,11 +24,18 @@ type Options struct {
 	Endpoint, Service, Version, Env string
 }
 
+// Resource tells containers of the same image apart: during a restart or scale-out two of them run
+// at once, and without service.instance.id their metric series would collide.
 func Resource(o Options) *resource.Resource {
+	instance, err := os.Hostname()
+	if err != nil || instance == "" {
+		instance = uuid.NewString()
+	}
 	return resource.NewWithAttributes(semconv.SchemaURL,
 		semconv.ServiceName(o.Service),
 		semconv.ServiceVersion(o.Version),
 		semconv.DeploymentEnvironmentName(o.Env),
+		semconv.ServiceInstanceID(instance),
 	)
 }
 

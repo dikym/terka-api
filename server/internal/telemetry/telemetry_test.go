@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
 	"testing"
 
 	"go.opentelemetry.io/otel"
@@ -15,6 +16,17 @@ import (
 
 	"github.com/dikym/terka-api/server/internal/telemetry"
 )
+
+func TestResourceCarriesInstanceID(t *testing.T) {
+	host, err := os.Hostname()
+	if err != nil {
+		t.Skip("hostname unavailable")
+	}
+	got, ok := telemetry.Resource(telemetry.Options{Service: "terka-api"}).Set().Value("service.instance.id")
+	if !ok || got.AsString() == "" || got.AsString() != host {
+		t.Fatalf("service.instance.id = %q (found %v), want %q", got.AsString(), ok, host)
+	}
+}
 
 func TestSetupWithoutEndpointInstallsNothing(t *testing.T) {
 	before := otel.GetTracerProvider()
