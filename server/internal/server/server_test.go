@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -267,6 +268,48 @@ func TestRequestDurationMetricCarriesTheRoute(t *testing.T) {
 		}
 	}
 	t.Fatal("no http.server.request.duration point with http.route /healthz")
+}
+
+func leaksHost(kv attribute.KeyValue) bool {
+	v := fmt.Sprint(kv.Value.AsInterface())
+	return strings.Contains(v, "attacker-123") || strings.Contains(v, "4444")
+}
+
+func TestHostHeaderDoesNotBecomeALabel(t *testing.T) {
+	spans, reader := observe(t)
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	req.Host = "attacker-123.example:4444"
+	server.New(deps("local", up)).ServeHTTP(httptest.NewRecorder(), req)
+
+	for _, kv := range onlySpan(t, spans).Attributes {
+		if leaksHost(kv) {
+			t.Fatalf("span attribute %s=%s carries the host header", kv.Key, kv.Value.AsInterface())
+		}
+	}
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			h, ok := m.Data.(metricdata.Histogram[float64])
+			if m.Name != "http.server.request.duration" || !ok {
+				continue
+			}
+			for _, dp := range h.DataPoints {
+				seen = true
+				for _, kv := range dp.Attributes.ToSlice() {
+					if leaksHost(kv) {
+						t.Fatalf("metric attribute %s=%s carries the host header", kv.Key, kv.Value.AsInterface())
+					}
+				}
+			}
+		}
+	}
+	if !seen {
+		t.Fatal("no http.server.request.duration data point")
+	}
 }
 
 func TestPanicIsRecordedAsA500Span(t *testing.T) {
