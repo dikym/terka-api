@@ -29,6 +29,7 @@ type Config struct {
 	SMTPURL           string
 	MailFrom          string
 	TrustCloudflare   bool
+	OTLPEndpoint      string
 }
 
 // Local development runs without real accounts: Cloudflare's always-pass Turnstile test secret,
@@ -89,6 +90,7 @@ func Load(getenv func(string) string) (Config, error) {
 		TurnstileEndpoint:  get("TERKA_TURNSTILE_ENDPOINT"),
 		SMTPURL:            get("TERKA_SMTP_URL"),
 		MailFrom:           get("TERKA_MAIL_FROM"),
+		OTLPEndpoint:       get("TERKA_OTLP_ENDPOINT"),
 	}
 	if cfg.Addr == "" {
 		cfg.Addr = ":8080"

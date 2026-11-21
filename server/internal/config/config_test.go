@@ -184,3 +184,22 @@ func TestStagingRefusesTheLocalZeroAuthKey(t *testing.T) {
 		t.Fatalf("all-zero key: err = %v, want one naming TERKA_AUTH_KEY", err)
 	}
 }
+
+func TestOTLPEndpointIsOptional(t *testing.T) {
+	cfg, err := config.Load(env(staging()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OTLPEndpoint != "" {
+		t.Fatalf("OTLPEndpoint = %q, want empty", cfg.OTLPEndpoint)
+	}
+	vars := staging()
+	vars["TERKA_OTLP_ENDPOINT"] = "alloy:4317"
+	cfg, err = config.Load(env(vars))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OTLPEndpoint != "alloy:4317" {
+		t.Fatalf("OTLPEndpoint = %q, want alloy:4317", cfg.OTLPEndpoint)
+	}
+}
