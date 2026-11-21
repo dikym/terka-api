@@ -70,6 +70,7 @@ jobs:
       - run: bash deploy/scripts/compose_test.sh
       - run: bash deploy/scripts/edge_test.sh
       - run: bash deploy/scripts/caddy_version_test.sh
+      - run: make obs-check
 
   # The whole system as the VPS routes it, signed in through Caddy. The web is a stand-in, so a
   # change in terka-web never turns this repository's CI red.

@@ -1,6 +1,7 @@
 # Everything arrives by remote write from Alloy; Prometheus scrapes nothing itself.
 rule_files:
-  - /etc/prometheus/rules/*.yml
+  # Not a glob: rules/ also holds the promtool test file, which is not a rule file.
+  - /etc/prometheus/rules/terka.yml
 
 alerting:
   alertmanagers:

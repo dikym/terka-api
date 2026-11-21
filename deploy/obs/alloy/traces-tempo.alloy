@@ -1,15 +1,15 @@
 otelcol.processor.batch "traces" {
-  output {
-    traces = [otelcol.exporter.otlp.tempo.input]
-  }
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
 }
 
 otelcol.exporter.otlp "tempo" {
-  client {
-    endpoint = "tempo:4317"
+	client {
+		endpoint = "tempo:4317"
 
-    tls {
-      insecure = true
-    }
-  }
+		tls {
+			insecure = true
+		}
+	}
 }

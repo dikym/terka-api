@@ -1,129 +1,129 @@
 // Traces go to otelcol.processor.batch "traces", which the traces-*.alloy file beside this one defines.
 
 otelcol.receiver.otlp "default" {
-  grpc {
-    endpoint = "0.0.0.0:4317"
-  }
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
 
-  output {
-    metrics = [otelcol.processor.batch.metrics.input]
-    traces  = [otelcol.processor.batch.traces.input]
-  }
+	output {
+		metrics = [otelcol.processor.batch.metrics.input]
+		traces  = [otelcol.processor.batch.traces.input]
+	}
 }
 
 otelcol.processor.batch "metrics" {
-  output {
-    metrics = [otelcol.exporter.prometheus.default.input]
-  }
+	output {
+		metrics = [otelcol.exporter.prometheus.default.input]
+	}
 }
 
 otelcol.exporter.prometheus "default" {
-  resource_to_telemetry_conversion = true
-  forward_to                       = [prometheus.relabel.env.receiver]
+	resource_to_telemetry_conversion = true
+	forward_to                       = [prometheus.relabel.env.receiver]
 }
 
 prometheus.relabel "env" {
-  rule {
-    source_labels = ["deployment_environment_name"]
-    target_label  = "env"
-  }
+	rule {
+		source_labels = ["deployment_environment_name"]
+		target_label  = "env"
+	}
 
-  rule {
-    action = "labeldrop"
-    regex  = "deployment_environment_name"
-  }
+	rule {
+		action = "labeldrop"
+		regex  = "deployment_environment_name"
+	}
 
-  forward_to = [prometheus.remote_write.default.receiver]
+	forward_to = [prometheus.remote_write.default.receiver]
 }
 
 prometheus.remote_write "default" {
-  endpoint {
-    url = "http://prometheus:9090/api/v1/write"
-  }
+	endpoint {
+		url = "http://prometheus:9090/api/v1/write"
+	}
 }
 
 prometheus.exporter.unix "host" {
-  set_collectors = ["meminfo", "vmstat", "cpu", "loadavg", "filesystem"]
+	set_collectors = ["meminfo", "vmstat", "cpu", "loadavg", "filesystem"]
 
-  // Leaves only /var/lib/alloy/data, the volume on the host's root filesystem; the other mounts are
-  // container plumbing or the same disk again.
-  filesystem {
-    mount_points_exclude = "^/(dev|etc|proc|run|sys|var/log)?($|/)"
-  }
+	// Leaves only /var/lib/alloy/data, the volume on the host's root filesystem; the other mounts are
+	// container plumbing or the same disk again.
+	filesystem {
+		mount_points_exclude = "^/(dev|etc|proc|run|sys|var/log)?($|/)"
+	}
 }
 
 prometheus.exporter.postgres "terka" {
-  data_source_names = [sys.env("TERKA_MONITOR_DSN")]
+	data_source_names = [sys.env("TERKA_MONITOR_DSN")]
 }
 
 prometheus.exporter.self "alloy" { }
 
 prometheus.scrape "default" {
-  targets = array.concat(
-    prometheus.exporter.unix.host.targets,
-    prometheus.exporter.postgres.terka.targets,
-    prometheus.exporter.self.alloy.targets,
-    [{"__address__" = "caddy:2020", "job" = "caddy"}],
-  )
-  forward_to = [prometheus.remote_write.default.receiver]
+	targets = array.concat(
+		prometheus.exporter.unix.host.targets,
+		prometheus.exporter.postgres.terka.targets,
+		prometheus.exporter.self.alloy.targets,
+		[{"__address__" = "caddy:2020", "job" = "caddy"}],
+	)
+	forward_to = [prometheus.remote_write.default.receiver]
 }
 
 loki.relabel "journal" {
-  forward_to = []
+	forward_to = []
 
-  // Only container output and kernel messages: host units such as sshd log client IP addresses.
-  // This also applies to the backlog read on first start.
-  rule {
-    source_labels = ["__journal_container_name", "__journal__transport"]
-    regex         = ".+;.*|;kernel"
-    action        = "keep"
-  }
+	// Only container output and kernel messages: host units such as sshd log client IP addresses.
+	// This also applies to the backlog read on first start.
+	rule {
+		source_labels = ["__journal_container_name", "__journal__transport"]
+		regex         = ".+;.*|;kernel"
+		action        = "keep"
+	}
 
-  rule {
-    source_labels = ["__journal_container_name"]
-    target_label  = "container"
-  }
+	rule {
+		source_labels = ["__journal_container_name"]
+		target_label  = "container"
+	}
 
-  rule {
-    source_labels = ["__journal_container_name"]
-    regex         = "terka-(staging|production)-.*"
-    target_label  = "env"
-  }
+	rule {
+		source_labels = ["__journal_container_name"]
+		regex         = "terka-(staging|production)-.*"
+		target_label  = "env"
+	}
 
-  rule {
-    source_labels = ["__journal__transport"]
-    regex         = "kernel"
-    target_label  = "job"
-    replacement   = "kernel"
-  }
+	rule {
+		source_labels = ["__journal__transport"]
+		regex         = "kernel"
+		target_label  = "job"
+		replacement   = "kernel"
+	}
 }
 
 loki.source.journal "host" {
-  labels        = {job = "journal"}
-  relabel_rules = loki.relabel.journal.rules
-  forward_to    = [loki.process.json.receiver]
+	labels        = {job = "journal"}
+	relabel_rules = loki.relabel.journal.rules
+	forward_to    = [loki.process.json.receiver]
 }
 
 loki.process "json" {
-  // Lines that are not JSON (kernel, most system services) pass through unparsed.
-  stage.json {
-    expressions = {level = "", trace_id = ""}
-  }
+	// Lines that are not JSON (kernel, most system services) pass through unparsed.
+	stage.json {
+		expressions = {level = "", trace_id = ""}
+	}
 
-  stage.labels {
-    values = {level = ""}
-  }
+	stage.labels {
+		values = {level = ""}
+	}
 
-  // One value per request: as a label it would make a stream per request.
-  stage.structured_metadata {
-    values = {trace_id = ""}
-  }
+	// One value per request: as a label it would make a stream per request.
+	stage.structured_metadata {
+		values = {trace_id = ""}
+	}
 
-  forward_to = [loki.write.default.receiver]
+	forward_to = [loki.write.default.receiver]
 }
 
 loki.write "default" {
-  endpoint {
-    url = "http://loki:3100/loki/api/v1/push"
-  }
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
 }

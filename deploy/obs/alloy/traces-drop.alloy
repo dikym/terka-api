@@ -1,25 +1,25 @@
 // Without Tempo: spans are accepted, so the API sees no export errors, and then discarded.
 
 otelcol.processor.batch "traces" {
-  output {
-    traces = [otelcol.processor.filter.drop.input]
-  }
+	output {
+		traces = [otelcol.processor.filter.drop.input]
+	}
 }
 
 otelcol.processor.filter "drop" {
-  traces {
-    span = ["true"]
-  }
+	traces {
+		span = ["true"]
+	}
 
-  // Without a traces output the filter refuses traces and Alloy warns on every batch. Every span is
-  // dropped, so the exporter below never sends and never connects.
-  output {
-    traces = [otelcol.exporter.otlphttp.unreachable.input]
-  }
+	// Without a traces output the filter refuses traces and Alloy warns on every batch. Every span is
+	// dropped, so the exporter below never sends and never connects.
+	output {
+		traces = [otelcol.exporter.otlphttp.unreachable.input]
+	}
 }
 
 otelcol.exporter.otlphttp "unreachable" {
-  client {
-    endpoint = "http://127.0.0.1:1"
-  }
+	client {
+		endpoint = "http://127.0.0.1:1"
+	}
 }

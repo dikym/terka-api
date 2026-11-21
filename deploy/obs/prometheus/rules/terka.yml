@@ -1,0 +1,134 @@
+groups:
+  - name: terka-app
+    rules:
+      # target_info is written on every OTLP push, so it is present for as long as the API is alive.
+      - alert: ApiDown
+        expr: absent_over_time(target_info{job="terka-api",env="staging"}[5m])
+        labels:
+          severity: critical
+        annotations:
+          summary: "The staging API has reported nothing for 5 minutes. https://grafana.terka.my.id"
+
+      - alert: ApiErrors
+        expr: |
+          (
+            sum by (env) (increase(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[10m])) > 5
+          )
+          or
+          (
+            sum by (env) (increase(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[10m]))
+              / sum by (env) (increase(http_server_request_duration_seconds_count[10m])) > 0.05
+            and
+            sum by (env) (increase(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[10m])) >= 2
+          )
+        labels:
+          severity: critical
+        annotations:
+          summary: "The {{ $labels.env }} API is answering with server errors. https://grafana.terka.my.id"
+
+      - alert: ApiSlow
+        expr: |
+          histogram_quantile(0.95, sum by (le, env) (rate(http_server_request_duration_seconds_bucket[10m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.env }} API's 95th percentile response time is over 1 second. https://grafana.terka.my.id"
+
+  - name: terka-auth
+    rules:
+      - alert: EmailSendFailed
+        expr: increase(terka_auth_email_sent_total{outcome="failed"}[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "A sign-in email failed to send in {{ $labels.env }}. https://grafana.terka.my.id"
+
+      - alert: MailboxLocked
+        expr: increase(terka_auth_mailbox_locked_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "A mailbox was locked after repeated sign-in codes in {{ $labels.env }}. https://grafana.terka.my.id"
+
+      - alert: EmailServiceLimit
+        expr: |
+          sum by (env) (increase(terka_auth_email_refused_total{reason="service_limit"}[15m])) > 0
+          or
+          sum by (env) (increase(terka_auth_email_sent_total[24h])) >= 72
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.env }} is at the email service's daily limit. https://grafana.terka.my.id"
+
+  - name: terka-host
+    rules:
+      - alert: DiskFull
+        expr: |
+          node_filesystem_avail_bytes{mountpoint="/var/lib/alloy/data"}
+            / node_filesystem_size_bytes{mountpoint="/var/lib/alloy/data"} < 0.20
+        for: 5m
+        labels:
+          severity: critical
+          env: host
+        annotations:
+          summary: "The VPS disk has less than 20% free. https://grafana.terka.my.id"
+
+      - alert: MemoryLow
+        expr: node_memory_MemAvailable_bytes < 200e6
+        for: 10m
+        labels:
+          severity: warning
+          env: host
+        annotations:
+          summary: "The VPS has less than 200 MB of memory available. https://grafana.terka.my.id"
+
+      - alert: OomKill
+        expr: increase(node_vmstat_oom_kill[10m]) > 0
+        labels:
+          severity: critical
+          env: host
+        annotations:
+          summary: "The kernel killed a process for lack of memory. https://grafana.terka.my.id"
+
+  - name: terka-database
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          env: host
+        annotations:
+          summary: "Postgres is not answering the metrics exporter. https://grafana.terka.my.id"
+
+      # env comes from the database name: terka_staging gives staging.
+      - alert: DatabaseLarge
+        expr: |
+          label_replace(pg_database_size_bytes{datname=~"terka_.+"}, "env", "$1", "datname", "terka_(.+)") > 157286400
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database {{ $labels.datname }} is over 150 MiB. https://grafana.terka.my.id"
+
+  - name: terka-stack
+    rules:
+      - alert: CollectorDown
+        expr: absent_over_time(alloy_build_info[5m])
+        labels:
+          severity: critical
+          env: host
+        annotations:
+          summary: "The collector has reported nothing for 5 minutes. https://grafana.terka.my.id"
+
+      - alert: StackWriteFailing
+        expr: |
+          rate(prometheus_remote_storage_samples_failed_total[10m]) > 0
+          or
+          rate(loki_write_dropped_entries_total[10m]) > 0
+        for: 10m
+        labels:
+          severity: critical
+          env: host
+        annotations:
+          summary: "The collector is failing to write metrics or logs. https://grafana.terka.my.id"

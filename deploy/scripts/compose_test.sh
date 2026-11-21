@@ -90,13 +90,13 @@ printf 'GF_SECURITY_ADMIN_PASSWORD=dummy\n' >"$work/obs/grafana.env"
 obs_compose() { docker compose -f "$work/obs/compose.obs.yaml" "$@"; }
 obs=$(obs_compose --profile tempo config --format json)
 default=$(obs_compose config --services | sort | tr '\n' ' ')
-if [ "$default" = 'alloy grafana loki prometheus ' ]; then
+if [ "$default" = 'alertmanager alloy grafana loki prometheus ' ]; then
 	pass "tempo starts only when its profile is asked for"
 else
 	fail "tempo starts only when its profile is asked for" "$default"
 fi
 mem=$(jq -c -S '.services | map_values([.mem_limit, .environment.GOMEMLIMIT])' <<<"$obs")
-if [ "$mem" = '{"alloy":["201326592","163MiB"],"grafana":["335544320","272MiB"],"loki":["201326592","163MiB"],"prometheus":["201326592","163MiB"],"tempo":["335544320","272MiB"]}' ]; then
+if [ "$mem" = '{"alertmanager":["67108864","54MiB"],"alloy":["201326592","163MiB"],"grafana":["335544320","272MiB"],"loki":["201326592","163MiB"],"prometheus":["201326592","163MiB"],"tempo":["335544320","272MiB"]}' ]; then
 	pass "each observability service has its memory limit with the Go heap capped below it"
 else
 	fail "each observability service has its memory limit with the Go heap capped below it" "$mem"
@@ -108,7 +108,7 @@ else
 	fail "the only host port is grafana on loopback" "$ports"
 fi
 nets=$(jq -c -S '.services | map_values(.networks | keys)' <<<"$obs")
-if [ "$nets" = '{"alloy":["terka","terka-obs"],"grafana":["terka-edge","terka-obs"],"loki":["terka-obs"],"prometheus":["terka-obs"],"tempo":["terka-obs"]}' ]; then
+if [ "$nets" = '{"alertmanager":["terka-obs"],"alloy":["terka","terka-obs"],"grafana":["terka-edge","terka-obs"],"loki":["terka-obs"],"prometheus":["terka-obs"],"tempo":["terka-obs"]}' ]; then
 	pass "only alloy reaches the app network and only grafana the edge"
 else
 	fail "only alloy reaches the app network and only grafana the edge" "$nets"

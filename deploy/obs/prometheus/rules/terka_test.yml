@@ -1,0 +1,93 @@
+rule_files:
+  - terka.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'pg_database_size_bytes{datname="terka_staging"}'
+        values: "157286399+0x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DatabaseLarge
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'pg_database_size_bytes{datname="terka_staging"}'
+        values: "157286401+0x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DatabaseLarge
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              env: staging
+              datname: terka_staging
+            exp_annotations:
+              summary: "Database terka_staging is over 150 MiB. https://grafana.terka.my.id"
+
+  - interval: 1m
+    input_series:
+      - series: 'terka_auth_mailbox_locked_total{env="staging"}'
+        values: "0 0 0 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MailboxLocked
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              env: staging
+            exp_annotations:
+              summary: "A mailbox was locked after repeated sign-in codes in staging. https://grafana.terka.my.id"
+
+  - interval: 1m
+    input_series:
+      - series: 'terka_auth_mailbox_locked_total{env="staging"}'
+        values: "1+0x60"
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: MailboxLocked
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'target_info{job="terka-api",env="staging"}'
+        values: "1x10 _x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ApiDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ApiDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              env: staging
+              job: terka-api
+            exp_annotations:
+              summary: "The staging API has reported nothing for 5 minutes. https://grafana.terka.my.id"
+
+  - interval: 1h
+    input_series:
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="sent"}'
+        values: "0+3x24"
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: EmailServiceLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              env: staging
+            exp_annotations:
+              summary: "staging is at the email service's daily limit. https://grafana.terka.my.id"
+
+  - interval: 1h
+    input_series:
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="sent"}'
+        values: "0+2.96x24"
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: EmailServiceLimit
+        exp_alerts: []

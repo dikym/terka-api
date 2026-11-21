@@ -1,0 +1,16 @@
+route:
+  receiver: discord-staging
+  group_by: [alertname, env]
+  repeat_interval: 4h
+  routes:
+    - matchers: [env="production"]
+      receiver: discord-production
+
+# The webhook files are written by Ansible; a webhook URL is a credential and never lives in the repo.
+receivers:
+  - name: discord-staging
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/secrets/discord-staging
+  - name: discord-production
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/secrets/discord-production

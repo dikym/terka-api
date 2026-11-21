@@ -49,6 +49,24 @@ services:
       - prometheus-data:/prometheus
     networks: [terka-obs]
 
+  alertmanager:
+    image: prom/alertmanager:v0.35.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    read_only: true
+    mem_limit: 64m
+    environment:
+      GOMEMLIMIT: 54MiB
+    volumes:
+      # The file, not the folder: a mount inside a read-only folder mount has nowhere to create its mount point.
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # discord-staging and discord-production, one webhook URL each; written by Ansible.
+      - ./secrets:/etc/alertmanager/secrets:ro
+      - alertmanager-data:/alertmanager
+    networks: [terka-obs]
+
   loki:
     image: grafana/loki:3.7.10
     restart: unless-stopped
@@ -110,6 +128,7 @@ networks:
 volumes:
   alloy-data:
   prometheus-data:
+  alertmanager-data:
   loki-data:
   grafana-data:
   tempo-data:
