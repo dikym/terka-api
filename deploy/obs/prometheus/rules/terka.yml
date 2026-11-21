@@ -83,13 +83,15 @@ groups:
         annotations:
           summary: '{{ $labels.env }}: the email service refused {{ $value | printf "%.0f" }} send(s) for its daily limit in 15 minutes. https://grafana.terka.my.id'
 
+      # Staging and production send through one Resend account, so its daily limit counts them together.
       - alert: EmailServiceLimit
-        expr: sum by (env) (increase(terka_auth_email_sent_total[24h])) >= 72
+        expr: sum(increase(terka_auth_email_sent_total{outcome="ok"}[24h])) >= 72
         labels:
           severity: warning
+          env: host
           kind: volume
         annotations:
-          summary: '{{ $labels.env }}: {{ $value | printf "%.0f" }} sign-in emails sent in 24 hours, near the email service daily limit. https://grafana.terka.my.id'
+          summary: 'Email service: {{ $value | printf "%.0f" }} sign-in emails sent in 24 hours across all environments, near its daily limit. https://grafana.terka.my.id'
 
   - name: terka-host
     rules:

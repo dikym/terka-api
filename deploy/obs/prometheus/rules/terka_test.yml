@@ -135,27 +135,43 @@ tests:
             exp_annotations:
               summary: "staging API has reported nothing for 5 minutes. https://grafana.terka.my.id"
 
-  - name: 72 emails in a day fires
+  - name: 72 emails in a day across environments fires
     interval: 1h
     input_series:
       - series: 'terka_auth_email_sent_total{env="staging",outcome="ok"}'
-        values: "0+3x24"
+        values: "0+2x24"
+      - series: 'terka_auth_email_sent_total{env="production",outcome="ok"}'
+        values: "0+1x24"
     alert_rule_test:
       - eval_time: 24h
         alertname: EmailServiceLimit
         exp_alerts:
           - exp_labels:
               severity: warning
-              env: staging
+              env: host
               kind: volume
             exp_annotations:
-              summary: "staging: 72 sign-in emails sent in 24 hours, near the email service daily limit. https://grafana.terka.my.id"
+              summary: "Email service: 72 sign-in emails sent in 24 hours across all environments, near its daily limit. https://grafana.terka.my.id"
 
-  - name: 71 emails in a day stays quiet
+  - name: each environment alone under 72 emails stays quiet
     interval: 1h
     input_series:
       - series: 'terka_auth_email_sent_total{env="staging",outcome="ok"}'
-        values: "0+2.96x24"
+        values: "0+2x24"
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: EmailServiceLimit
+        exp_alerts: []
+
+  - name: 71 sent emails stay quiet, failed sends do not count
+    interval: 1h
+    input_series:
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="ok"}'
+        values: "0+2x24"
+      - series: 'terka_auth_email_sent_total{env="production",outcome="ok"}'
+        values: "0+0.96x24"
+      - series: 'terka_auth_email_sent_total{env="production",outcome="failed"}'
+        values: "0+1x24"
     alert_rule_test:
       - eval_time: 24h
         alertname: EmailServiceLimit
