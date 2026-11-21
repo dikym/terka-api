@@ -38,6 +38,8 @@ var GoogleProvider = oidc.ProviderConfig{
 var (
 	ErrCancelled    = errors.New("sign-in cancelled at google")
 	ErrGoogleFailed = errors.New("google sign-in failed")
+	// ErrUnverified is always joined with ErrGoogleFailed: the person lands on the generic failure page.
+	ErrUnverified = errors.New("address not vouched for by google")
 )
 
 // Google signs people in with their Google account over OpenID Connect with PKCE. What the callback
@@ -108,6 +110,10 @@ func failed(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrGoogleFailed, fmt.Sprintf(format, args...))
 }
 
+func notVouched(reason string) error {
+	return fmt.Errorf("%w: %w", ErrUnverified, failed("%s", reason))
+}
+
 // Callback finishes a sign-in. Besides ErrCancelled and ErrOtherBrowser, every failure is
 // ErrGoogleFailed with the cause attached for the log.
 func (g *Google) Callback(ctx context.Context, query url.Values, cookie string) (string, Session, error) {
@@ -156,7 +162,7 @@ func (g *Google) Callback(ctx context.Context, query url.Values, cookie string) 
 		return "", Session{}, failed("claims: %v", err)
 	}
 	if !claims.Verified || idToken.Subject == "" {
-		return "", Session{}, failed("address not verified at google")
+		return "", Session{}, notVouched("address not verified at google")
 	}
 	addr, err := NormalizeEmail(claims.Email)
 	if err != nil {
@@ -208,7 +214,7 @@ func (g *Google) findOrCreate(ctx context.Context, q *store.Queries, sub, addr s
 		return uuid.UUID{}, err
 	}
 	if !vouched {
-		return uuid.UUID{}, failed("google does not vouch for the address")
+		return uuid.UUID{}, notVouched("google does not vouch for the address")
 	}
 	user, err := q.UserByEmail(ctx, addr)
 	if errors.Is(err, pgx.ErrNoRows) {

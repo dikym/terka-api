@@ -35,6 +35,7 @@ type Handlers struct {
 	TrustCloudflare bool
 	Log             *slog.Logger
 	Now             func() time.Time
+	Metrics         *Metrics
 
 	requestLimit, verifyLimit, googleLimit, removedLimit *Limiter
 }
@@ -153,6 +154,7 @@ func (h *Handlers) emailRequest(w http.ResponseWriter, r *http.Request) error {
 	}
 	ip := httpx.ClientIP(r, h.TrustCloudflare)
 	if !h.requestLimit.Allow(IPKey(ip), h.Now()) {
+		h.Metrics.EmailRefused(r.Context(), "rate_limited")
 		return errRateLimited
 	}
 	res, err := h.Codes.Request(r.Context(), in.Email, in.Turnstile, ip, cookieValue(r, bindingCookie))
@@ -160,11 +162,14 @@ func (h *Handlers) emailRequest(w http.ResponseWriter, r *http.Request) error {
 	case errors.Is(err, ErrInvalidEmail):
 		return clientErr(http.StatusBadRequest, "invalid_email", "the email address is not valid")
 	case errors.Is(err, ErrCaptcha):
+		h.Metrics.EmailRefused(r.Context(), "captcha")
 		return clientErr(http.StatusBadRequest, "captcha_failed", "the human check failed")
 	case errors.Is(err, ErrTooSoon):
+		h.Metrics.EmailRefused(r.Context(), "too_soon")
 		retryAfter(w, err)
 		return clientErr(http.StatusTooManyRequests, "too_soon", "a code was sent recently")
 	case errors.Is(err, ErrServiceLimit):
+		h.Metrics.EmailRefused(r.Context(), "service_limit")
 		return errRateLimited
 	case err != nil:
 		return err
@@ -181,21 +186,28 @@ func (h *Handlers) emailVerify(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(w, r, &in); err != nil {
 		return err
 	}
+	ctx := r.Context()
 	if !h.verifyLimit.Allow(IPKey(httpx.ClientIP(r, h.TrustCloudflare)), h.Now()) {
+		h.Metrics.SignIn(ctx, "email", "refused", "rate_limited")
 		return errRateLimited
 	}
-	token, s, err := h.Codes.Verify(r.Context(), in.Email, in.Code, cookieValue(r, bindingCookie))
+	token, s, err := h.Codes.Verify(ctx, in.Email, in.Code, cookieValue(r, bindingCookie))
 	switch {
 	case errors.Is(err, ErrOtherBrowser):
+		h.Metrics.SignIn(ctx, "email", "refused", "other_browser")
 		return clientErr(http.StatusBadRequest, "other_browser", "open the code in the browser that asked for it")
 	case errors.Is(err, ErrInvalid):
+		h.Metrics.SignIn(ctx, "email", "refused", "invalid_code")
 		return clientErr(http.StatusBadRequest, "invalid", "the code is wrong or no longer valid")
 	case errors.Is(err, ErrLocked):
+		h.Metrics.SignIn(ctx, "email", "refused", "locked")
 		retryAfter(w, err)
 		return clientErr(http.StatusTooManyRequests, "locked", "too many wrong codes, try again later")
 	case err != nil:
+		h.Metrics.SignIn(ctx, "email", "refused", "failed")
 		return err
 	}
+	h.Metrics.SignIn(ctx, "email", "ok", "")
 	h.signedIn(w, r, token)
 	clearCookie(w, bindingCookie, http.SameSiteStrictMode)
 	return httpx.JSON(w, http.StatusOK, sessionBody(s))
@@ -203,6 +215,7 @@ func (h *Handlers) emailVerify(w http.ResponseWriter, r *http.Request) error {
 
 func (h *Handlers) googleStart(w http.ResponseWriter, r *http.Request) error {
 	if !h.googleLimit.Allow(IPKey(httpx.ClientIP(r, h.TrustCloudflare)), h.Now()) {
+		h.Metrics.SignIn(r.Context(), "google", "refused", "rate_limited")
 		return errRateLimited
 	}
 	redirect, cookie, err := h.Google.Start()
@@ -224,13 +237,21 @@ func (h *Handlers) googleCallback(w http.ResponseWriter, r *http.Request) {
 	target := callbackPage
 	switch {
 	case errors.Is(err, ErrCancelled):
+		h.Metrics.SignIn(r.Context(), "google", "refused", "cancelled")
 		target += "?error=cancelled"
 	case errors.Is(err, ErrOtherBrowser):
+		h.Metrics.SignIn(r.Context(), "google", "refused", "other_browser")
 		target += "?error=other_browser"
 	case err != nil:
+		reason := "failed"
+		if errors.Is(err, ErrUnverified) {
+			reason = "unverified"
+		}
+		h.Metrics.SignIn(r.Context(), "google", "refused", reason)
 		h.Log.WarnContext(r.Context(), "google sign-in failed", "error", err)
 		target += "?error=failed"
 	default:
+		h.Metrics.SignIn(r.Context(), "google", "ok", "")
 		h.signedIn(w, r, token)
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)

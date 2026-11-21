@@ -16,11 +16,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/dikym/terka-api/server/internal/auth"
 	"github.com/dikym/terka-api/server/internal/auth/oidctest"
 	"github.com/dikym/terka-api/server/internal/db"
 	"github.com/dikym/terka-api/server/internal/server"
+	"github.com/dikym/terka-api/server/internal/telemetry"
 )
 
 // stack is the whole server with the auth routes, over a real database and fake outside services.
@@ -47,6 +52,18 @@ func (s *stack) Write(p []byte) (int, error) {
 
 func newStack(t *testing.T, trustCloudflare bool) *stack {
 	t.Helper()
+	return newStackWithMetrics(t, trustCloudflare, nil)
+}
+
+func newStackWithMetrics(t *testing.T, trustCloudflare bool, mp metric.MeterProvider) *stack {
+	t.Helper()
+	var metrics *auth.Metrics
+	if mp != nil {
+		var err error
+		if metrics, err = auth.NewMetrics(mp); err != nil {
+			t.Fatal(err)
+		}
+	}
 	app, a := pools(t)
 	s := &stack{mail: &stubMailer{}, turnstile: &stubTurnstile{}, clock: newClock(), auth: a, app: app}
 	s.issuer = oidctest.NewIssuer(t, googleClient)
@@ -57,10 +74,10 @@ func newStack(t *testing.T, trustCloudflare bool) *stack {
 	h := &auth.Handlers{
 		Codes: &auth.EmailCodes{
 			Auth: a, Sessions: s.sessions, Keys: testKeys, Mailer: s.mail, Turnstile: s.turnstile,
-			PublicURL: "https://terka.my.id", Now: s.clock.Now, Log: log,
+			PublicURL: "https://terka.my.id", Now: s.clock.Now, Log: log, Metrics: metrics,
 		},
 		Google: google, Sessions: s.sessions, Auth: a, App: app,
-		Env: "staging", TrustCloudflare: trustCloudflare, Log: log, Now: s.clock.Now,
+		Env: "staging", TrustCloudflare: trustCloudflare, Log: log, Now: s.clock.Now, Metrics: metrics,
 	}
 	s.handler = server.New(server.Deps{Version: "test", Env: "staging", Ping: up, Logger: log, Routes: h.Mount})
 	t.Cleanup(func() {
@@ -608,4 +625,48 @@ func TestPerIPLimitCountsAnIPv6Slash64AsOneAddress(t *testing.T) {
 		expect(t, send(i), http.StatusAccepted, "")
 	}
 	expect(t, send(10), http.StatusTooManyRequests, "rate_limited")
+}
+
+// otelhttp and otelpgx read the global tracer provider, so this test must not run in parallel.
+func TestNoSecretReachesTheSpans(t *testing.T) {
+	mem := tracetest.NewInMemoryExporter()
+	tp := telemetry.NewTracerProvider(nil, sdktrace.WithSyncer(mem))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(previous) })
+
+	s := newStack(t, false)
+	session := s.signIn(t, "ani@contoh.id")
+	s.do(call{method: "GET", target: "/api/auth/session", cookies: []*http.Cookie{session}})
+	s.clock.Advance(61 * time.Second)
+	binding, code := s.requestCode(t, "ani@contoh.id")
+	s.do(call{method: "POST", target: "/api/auth/email/verify", body: verifyBody("ani@contoh.id", wrong(code)), cookies: []*http.Cookie{binding}})
+	s.remember("ani@gmail.com")
+	s.googleSignIn(t, nil)
+
+	spans := mem.GetSpans()
+	if len(spans) == 0 {
+		t.Fatal("no spans were recorded")
+	}
+	var seen strings.Builder
+	for _, sp := range spans {
+		seen.WriteString(sp.Name + "\n")
+		for _, kv := range sp.Attributes {
+			seen.WriteString(string(kv.Key) + "=" + kv.Value.String() + "\n")
+		}
+		for _, ev := range sp.Events {
+			seen.WriteString(ev.Name + "\n")
+			for _, kv := range ev.Attributes {
+				seen.WriteString(string(kv.Key) + "=" + kv.Value.String() + "\n")
+			}
+		}
+	}
+	text := strings.ToLower(seen.String())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, secret := range s.secrets {
+		if strings.Contains(text, strings.ToLower(secret)) {
+			t.Errorf("a span carries the secret %q:\n%s", secret, seen.String())
+		}
+	}
 }

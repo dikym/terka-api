@@ -64,6 +64,7 @@ type EmailCodes struct {
 	PublicURL string
 	Now       func() time.Time
 	Log       *slog.Logger
+	Metrics   *Metrics
 }
 
 // RequestResult holds the new binding cookie value for the requesting browser.
@@ -157,6 +158,7 @@ func (e *EmailCodes) Request(ctx context.Context, email, turnstile, ip, oldBindi
 		// The code is stored and counted already; a caller who leaves must not cancel its email.
 		err = e.Mailer.Send(context.WithoutCancel(ctx), mail)
 	}
+	e.Metrics.EmailSent(ctx, err == nil)
 	if err != nil {
 		// Mail servers echo the recipient in their errors.
 		e.Log.ErrorContext(ctx, "email code not sent", "error", strings.ReplaceAll(strings.ToLower(err.Error()), addr, "<recipient>"))
@@ -185,6 +187,7 @@ func (e *EmailCodes) Verify(ctx context.Context, email, code, binding string) (s
 	var sess Session
 	// A wrong guess must be recorded, so it commits; the outcome travels outside the transaction.
 	var outcome error
+	var locked bool
 	err = e.Auth.AsAuth(ctx, func(tx pgx.Tx) error {
 		q := store.New(tx)
 		now := e.Now()
@@ -215,6 +218,12 @@ func (e *EmailCodes) Verify(ctx context.Context, email, code, binding string) (s
 			if err := q.RecordSigninFailure(ctx, store.RecordSigninFailureParams{Mailbox: mailbox, Now: now}); err != nil {
 				return err
 			}
+			_, err := q.TwentiethFailure(ctx, store.TwentiethFailureParams{Mailbox: mailbox, Since: now.Add(-lockWindow)})
+			if err == nil {
+				locked = true
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
 			outcome = ErrInvalid
 			return nil
 		}
@@ -230,6 +239,9 @@ func (e *EmailCodes) Verify(ctx context.Context, email, code, binding string) (s
 	})
 	if err != nil {
 		return "", Session{}, fmt.Errorf("verify email code: %w", err)
+	}
+	if locked {
+		e.Metrics.MailboxLocked(ctx)
 	}
 	if outcome != nil {
 		e.Log.InfoContext(ctx, "email sign-in refused", "reason", outcome.Error())
