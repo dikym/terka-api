@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dikym/terka-api/server/internal/httpx"
+	"github.com/dikym/terka-api/server/internal/telemetry"
 )
 
 type Deps struct {
@@ -49,7 +50,7 @@ func New(d Deps) http.Handler {
 		return &httpx.Error{Status: http.StatusForbidden, Code: "cross_origin", Message: "cross-origin request refused"}
 	}, d.Logger))
 	guarded := protection.Handler(mux)
-	return httpx.Recover(accessLog(securityHeaders(guarded, d.Env), d.Logger), d.Logger)
+	return telemetry.HTTP(httpx.Recover(accessLog(securityHeaders(guarded, d.Env), d.Logger), d.Logger))
 }
 
 func securityHeaders(next http.Handler, env string) http.Handler {

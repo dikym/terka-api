@@ -1,7 +1,9 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,6 +13,13 @@ import (
 	"time"
 
 	"github.com/dikym/terka-api/server/internal/server"
+	"github.com/dikym/terka-api/server/internal/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func deps(env string, ping func(context.Context) error) server.Deps {
@@ -162,5 +171,157 @@ func TestCrossOriginRefusalIsJSON(t *testing.T) {
 	if rec.Code != http.StatusForbidden || rec.Header().Get("Content-Type") != "application/json" ||
 		!strings.Contains(body(rec), `"code":"cross_origin"`) {
 		t.Fatalf("got %d %q %s", rec.Code, rec.Header().Get("Content-Type"), body(rec))
+	}
+}
+
+func observe(t *testing.T) (*tracetest.InMemoryExporter, *sdkmetric.ManualReader) {
+	t.Helper()
+	spans := tracetest.NewInMemoryExporter()
+	reader := sdkmetric.NewManualReader()
+	prevTP, prevMP := otel.GetTracerProvider(), otel.GetMeterProvider()
+	otel.SetTracerProvider(telemetry.NewTracerProvider(nil, sdktrace.WithSyncer(spans)))
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() {
+		otel.SetTracerProvider(prevTP)
+		otel.SetMeterProvider(prevMP)
+	})
+	return spans, reader
+}
+
+func onlySpan(t *testing.T, spans *tracetest.InMemoryExporter) tracetest.SpanStub {
+	t.Helper()
+	got := spans.GetSpans()
+	if len(got) != 1 {
+		t.Fatalf("got %d spans, want 1", len(got))
+	}
+	return got[0]
+}
+
+func attr(s tracetest.SpanStub, key string) (attribute.Value, bool) {
+	for _, kv := range s.Attributes {
+		if string(kv.Key) == key {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
+func TestSpanIsNamedAfterTheRoutePattern(t *testing.T) {
+	spans, _ := observe(t)
+	get(server.New(deps("local", up)), "/readyz")
+	s := onlySpan(t, spans)
+	route, _ := attr(s, "http.route")
+	if s.Name != "GET /readyz" || route.AsString() != "GET /readyz" {
+		t.Fatalf("name %q, http.route %q", s.Name, route.AsString())
+	}
+}
+
+func TestUnknownPathsShareOneRouteLabel(t *testing.T) {
+	spans, _ := observe(t)
+	h := server.New(deps("local", up))
+	get(h, "/wp-login.php")
+	get(h, "/x/123")
+	got := spans.GetSpans()
+	if len(got) != 2 {
+		t.Fatalf("got %d spans, want 2", len(got))
+	}
+	for _, s := range got {
+		if route, _ := attr(s, "http.route"); route.AsString() != "/" {
+			t.Fatalf("http.route %q, want /", route.AsString())
+		}
+	}
+}
+
+func TestCrossOriginRefusalIsLabelledUnmatched(t *testing.T) {
+	spans, _ := observe(t)
+	req := httptest.NewRequest("POST", "/readyz", nil)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	server.New(deps("local", up)).ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("got %d, want 403", rec.Code)
+	}
+	if route, _ := attr(onlySpan(t, spans), "http.route"); route.AsString() != "unmatched" {
+		t.Fatalf("http.route %q, want unmatched", route.AsString())
+	}
+}
+
+func TestRequestDurationMetricCarriesTheRoute(t *testing.T) {
+	_, reader := observe(t)
+	get(server.New(deps("local", up)), "/healthz")
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			h, ok := m.Data.(metricdata.Histogram[float64])
+			if m.Name != "http.server.request.duration" || !ok {
+				continue
+			}
+			for _, dp := range h.DataPoints {
+				if v, ok := dp.Attributes.Value("http.route"); ok && v.AsString() == "/healthz" {
+					return
+				}
+			}
+		}
+	}
+	t.Fatal("no http.server.request.duration point with http.route /healthz")
+}
+
+func TestPanicIsRecordedAsA500Span(t *testing.T) {
+	spans, _ := observe(t)
+	d := deps("local", up)
+	d.Routes = func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /boom", func(http.ResponseWriter, *http.Request) { panic("boom") })
+	}
+	rec := get(server.New(d), "/boom")
+	if rec.Code != 500 {
+		t.Fatalf("got %d, want 500", rec.Code)
+	}
+	if code, _ := attr(onlySpan(t, spans), "http.response.status_code"); code.AsInt64() != 500 {
+		t.Fatalf("status code attribute %d, want 500", code.AsInt64())
+	}
+}
+
+func TestIncomingTraceparentIsIgnored(t *testing.T) {
+	spans, _ := observe(t)
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	req.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+	server.New(deps("local", up)).ServeHTTP(httptest.NewRecorder(), req)
+	if id := onlySpan(t, spans).SpanContext.TraceID().String(); id == "4bf92f3577b34da6a3ce929d0e0e4736" {
+		t.Fatal("span joined the caller's trace")
+	}
+}
+
+func TestQueryStringNeverReachesTheSpan(t *testing.T) {
+	spans, _ := observe(t)
+	get(server.New(deps("local", up)), "/healthz?code=abc&state=xyz")
+	s := onlySpan(t, spans)
+	if q, ok := attr(s, "url.query"); ok && q.AsString() != "redacted" {
+		t.Fatalf("url.query %q", q.AsString())
+	}
+	for _, kv := range s.Attributes {
+		if v := kv.Value.String(); strings.Contains(v, "abc") || strings.Contains(v, "xyz") {
+			t.Fatalf("attribute %s leaks the query: %s", kv.Key, v)
+		}
+	}
+}
+
+func TestAccessLogCarriesTheRequestTraceID(t *testing.T) {
+	spans, _ := observe(t)
+	var buf bytes.Buffer
+	d := deps("local", up)
+	d.Logger = slog.New(telemetry.LogHandler(slog.NewJSONHandler(&buf, nil)))
+	get(server.New(d), "/healthz")
+	var line struct {
+		Msg     string `json:"msg"`
+		TraceID string `json:"trace_id"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &line); err != nil {
+		t.Fatal(err)
+	}
+	if want := onlySpan(t, spans).SpanContext.TraceID().String(); line.Msg != "request" || line.TraceID != want {
+		t.Fatalf("log line %+v, want trace_id %s", line, want)
 	}
 }
