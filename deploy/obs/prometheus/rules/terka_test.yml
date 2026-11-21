@@ -33,7 +33,9 @@ tests:
   - name: first locked mailbox fires although the series starts at 1, then goes quiet
     interval: 1m
     input_series:
-      - series: 'terka_auth_mailbox_locked_total{env="staging"}'
+      - series: 'terka_auth_mailbox_locked_total{env="staging",instance="a"}'
+        values: "_x5 1x40"
+      - series: 'terka_auth_mailbox_locked_total{env="staging",instance="b"}'
         values: "_x5 1x40"
     alert_rule_test:
       - eval_time: 10m
@@ -43,16 +45,18 @@ tests:
               severity: warning
               env: staging
             exp_annotations:
-              summary: "staging: 1 mailbox lock(s) after repeated sign-in codes in 15 minutes. https://grafana.terka.my.id"
+              summary: "staging: 2 mailbox lock(s) after repeated sign-in codes in 15 minutes. https://grafana.terka.my.id"
       - eval_time: 25m
         alertname: MailboxLocked
         exp_alerts: []
 
-  - name: a later locked mailbox fires on the increase, a steady counter does not
+  - name: a lock counted by a second container fires once, a steady counter does not
     interval: 1m
     input_series:
-      - series: 'terka_auth_mailbox_locked_total{env="staging"}'
-        values: "1x30 2x30"
+      - series: 'terka_auth_mailbox_locked_total{env="staging",instance="a"}'
+        values: "1x60"
+      - series: 'terka_auth_mailbox_locked_total{env="staging",instance="b"}'
+        values: "_x28 1x32"
     alert_rule_test:
       - eval_time: 20m
         alertname: MailboxLocked
@@ -72,7 +76,9 @@ tests:
   - name: first failed email fires although the series starts at 1, sent emails do not
     interval: 1m
     input_series:
-      - series: 'terka_auth_email_sent_total{env="staging",outcome="failed"}'
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="failed",instance="a"}'
+        values: "_x5 1x40"
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="failed",instance="b"}'
         values: "_x5 1x40"
       - series: 'terka_auth_email_sent_total{env="production",outcome="ok"}'
         values: "_x5 1x40"
@@ -83,9 +89,8 @@ tests:
           - exp_labels:
               severity: critical
               env: staging
-              outcome: failed
             exp_annotations:
-              summary: "staging: 1 sign-in email(s) failed to send in 15 minutes. https://grafana.terka.my.id"
+              summary: "staging: 2 sign-in email(s) failed to send in 15 minutes. https://grafana.terka.my.id"
       - eval_time: 25m
         alertname: EmailSendFailed
         exp_alerts: []

@@ -46,9 +46,11 @@ groups:
     rules:
       - alert: EmailSendFailed
         expr: |
-          (terka_auth_email_sent_total{outcome="failed"} unless terka_auth_email_sent_total{outcome="failed"} offset 15m)
-          or
-          (increase(terka_auth_email_sent_total{outcome="failed"}[15m]) > 0)
+          sum by (env) (
+            (terka_auth_email_sent_total{outcome="failed"} unless terka_auth_email_sent_total{outcome="failed"} offset 15m)
+            or
+            (increase(terka_auth_email_sent_total{outcome="failed"}[15m]) > 0)
+          )
         labels:
           severity: critical
         annotations:
@@ -56,9 +58,11 @@ groups:
 
       - alert: MailboxLocked
         expr: |
-          (terka_auth_mailbox_locked_total unless terka_auth_mailbox_locked_total offset 15m)
-          or
-          (increase(terka_auth_mailbox_locked_total[15m]) > 0)
+          sum by (env) (
+            (terka_auth_mailbox_locked_total unless terka_auth_mailbox_locked_total offset 15m)
+            or
+            (increase(terka_auth_mailbox_locked_total[15m]) > 0)
+          )
         labels:
           severity: warning
         annotations:
