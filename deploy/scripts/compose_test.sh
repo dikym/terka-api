@@ -68,6 +68,12 @@ if [ "$edge" = '[]' ]; then
 else
 	fail "compose leaves the edge alias to the deploy script" "$edge"
 fi
+api=$(jq -c '{api: .services.api.mem_limit, gomem: .services.api.environment.GOMEMLIMIT, migrate: .services.migrate.mem_limit}' <<<"$config")
+if [ "$api" = '{"api":"134217728","gomem":"100MiB","migrate":"67108864"}' ]; then
+	pass "the api runs in 128 MiB with the Go heap capped below it, the migration job in 64 MiB"
+else
+	fail "the api runs in 128 MiB with the Go heap capped below it, the migration job in 64 MiB" "$api"
+fi
 web=$(jq -c '.services.web | {env: .environment, ro: .read_only, mem: .mem_limit}' <<<"$web_config")
 if [ "$web" = '{"env":{"TERKA_ENV":"staging"},"ro":true,"mem":"33554432"}' ]; then
 	pass "the web container gets only its environment name, read-only, in 32 MiB"

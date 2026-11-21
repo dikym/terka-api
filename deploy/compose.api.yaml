@@ -11,6 +11,9 @@ services:
     env_file: ${TERKA_ENV_NAME}/.env
     read_only: true
     mem_limit: 128m
+    environment:
+      # Below mem_limit so the Go runtime collects harder before the kernel kills the container.
+      GOMEMLIMIT: 100MiB
     # The server gives running requests 20 seconds after SIGTERM; Docker kills after 10 by default.
     stop_grace_period: 25s
     # Postgres only. deploy.sh adds the container to terka-edge, under terka-<env>-api, once healthy.
@@ -22,6 +25,7 @@ services:
     # Only the schema owner's URL, kept apart from the API: that role bypasses row level security.
     env_file: ${TERKA_ENV_NAME}/migrate.env
     read_only: true
+    mem_limit: 64m
     profiles: [tools]
     networks: [terka]
 
