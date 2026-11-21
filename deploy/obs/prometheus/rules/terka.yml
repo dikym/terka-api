@@ -2,6 +2,7 @@ groups:
   - name: terka-app
     rules:
       # target_info is written on every OTLP push, so it is present for as long as the API is alive.
+      # Production needs its own selector here when it joins at stage 9.
       - alert: ApiDown
         expr: absent_over_time(target_info{job="terka-api",env="staging"}[5m])
         labels:
@@ -19,12 +20,13 @@ groups:
         annotations:
           summary: '{{ $labels.env }} API: {{ $value | printf "%.0f" }} server errors in 10 minutes. https://grafana.terka.my.id'
 
+      # The container health check calls /readyz every 5 seconds, which would swamp the user traffic.
       - alert: ApiErrors
         expr: |
-          sum by (env) (increase(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[10m]))
-            / sum by (env) (increase(http_server_request_duration_seconds_count[10m])) > 0.05
+          sum by (env) (increase(http_server_request_duration_seconds_count{http_route!~"/readyz|/healthz",http_response_status_code=~"5.."}[10m]))
+            / sum by (env) (increase(http_server_request_duration_seconds_count{http_route!~"/readyz|/healthz"}[10m])) > 0.05
           and
-          sum by (env) (increase(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[10m])) >= 2
+          sum by (env) (increase(http_server_request_duration_seconds_count{http_route!~"/readyz|/healthz",http_response_status_code=~"5.."}[10m])) >= 2
         labels:
           severity: critical
           kind: ratio
@@ -33,7 +35,7 @@ groups:
 
       - alert: ApiSlow
         expr: |
-          histogram_quantile(0.95, sum by (le, env) (rate(http_server_request_duration_seconds_bucket[10m]))) > 1
+          histogram_quantile(0.95, sum by (le, env) (rate(http_server_request_duration_seconds_bucket{http_route!~"/readyz|/healthz"}[10m]))) > 1
         for: 10m
         labels:
           severity: warning

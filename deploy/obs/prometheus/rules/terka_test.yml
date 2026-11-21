@@ -197,6 +197,55 @@ tests:
             exp_annotations:
               summary: "staging API: 9.091% of requests failed with a server error in 10 minutes. https://grafana.terka.my.id"
 
+  - name: health checks do not dilute the error ratio
+    interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="500"}'
+        values: "0+0.3x20"
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="200"}'
+        values: "0+3x20"
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/readyz",http_response_status_code="200"}'
+        values: "0+12x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApiErrors
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              env: staging
+              kind: ratio
+            exp_annotations:
+              summary: "staging API: 9.091% of requests failed with a server error in 10 minutes. https://grafana.terka.my.id"
+
+  - name: a slow user route fires despite many fast health checks
+    interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/readyz",le="0.005"}'
+        values: "0+12x30"
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/readyz",le="1"}'
+        values: "0+12x30"
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/readyz",le="2"}'
+        values: "0+12x30"
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/readyz",le="+Inf"}'
+        values: "0+12x30"
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/api/sync",le="0.005"}'
+        values: "0x30"
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/api/sync",le="1"}'
+        values: "0x30"
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/api/sync",le="2"}'
+        values: "0+0.5x30"
+      - series: 'http_server_request_duration_seconds_bucket{env="staging",http_route="/api/sync",le="+Inf"}'
+        values: "0+0.5x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ApiSlow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              env: staging
+            exp_annotations:
+              summary: "staging API: 95th percentile response time is 1.95 s. https://grafana.terka.my.id"
+
   - name: one error among little traffic and no traffic at all stay quiet
     interval: 1m
     input_series:
