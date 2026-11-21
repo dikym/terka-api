@@ -4,7 +4,8 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
-  - interval: 1m
+  - name: database just under the limit stays quiet
+    interval: 1m
     input_series:
       - series: 'pg_database_size_bytes{datname="terka_staging"}'
         values: "157286399+0x5"
@@ -13,7 +14,8 @@ tests:
         alertname: DatabaseLarge
         exp_alerts: []
 
-  - interval: 1m
+  - name: database just over the limit fires
+    interval: 1m
     input_series:
       - series: 'pg_database_size_bytes{datname="terka_staging"}'
         values: "157286401+0x5"
@@ -26,32 +28,91 @@ tests:
               env: staging
               datname: terka_staging
             exp_annotations:
-              summary: "Database terka_staging is over 150 MiB. https://grafana.terka.my.id"
+              summary: "staging database is 150MiB, over the 150 MiB limit. https://grafana.terka.my.id"
 
-  - interval: 1m
+  - name: first locked mailbox fires although the series starts at 1, then goes quiet
+    interval: 1m
     input_series:
       - series: 'terka_auth_mailbox_locked_total{env="staging"}'
-        values: "0 0 0 1 1 1 1 1 1 1"
+        values: "_x5 1x40"
     alert_rule_test:
-      - eval_time: 5m
+      - eval_time: 10m
         alertname: MailboxLocked
         exp_alerts:
           - exp_labels:
               severity: warning
               env: staging
             exp_annotations:
-              summary: "A mailbox was locked after repeated sign-in codes in staging. https://grafana.terka.my.id"
-
-  - interval: 1m
-    input_series:
-      - series: 'terka_auth_mailbox_locked_total{env="staging"}'
-        values: "1+0x60"
-    alert_rule_test:
-      - eval_time: 45m
+              summary: "staging: 1 mailbox lock(s) after repeated sign-in codes in 15 minutes. https://grafana.terka.my.id"
+      - eval_time: 25m
         alertname: MailboxLocked
         exp_alerts: []
 
-  - interval: 1m
+  - name: a later locked mailbox fires on the increase, a steady counter does not
+    interval: 1m
+    input_series:
+      - series: 'terka_auth_mailbox_locked_total{env="staging"}'
+        values: "1x30 2x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MailboxLocked
+        exp_alerts: []
+      - eval_time: 32m
+        alertname: MailboxLocked
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              env: staging
+            exp_annotations:
+              summary: "staging: 1 mailbox lock(s) after repeated sign-in codes in 15 minutes. https://grafana.terka.my.id"
+      - eval_time: 55m
+        alertname: MailboxLocked
+        exp_alerts: []
+
+  - name: first failed email fires although the series starts at 1, sent emails do not
+    interval: 1m
+    input_series:
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="failed"}'
+        values: "_x5 1x40"
+      - series: 'terka_auth_email_sent_total{env="production",outcome="ok"}'
+        values: "_x5 1x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EmailSendFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              env: staging
+              outcome: failed
+            exp_annotations:
+              summary: "staging: 1 sign-in email(s) failed to send in 15 minutes. https://grafana.terka.my.id"
+      - eval_time: 25m
+        alertname: EmailSendFailed
+        exp_alerts: []
+
+  - name: first refused send fires although the series starts at 1
+    interval: 1m
+    input_series:
+      - series: 'terka_auth_email_refused_total{env="staging",reason="service_limit"}'
+        values: "_x5 1x40"
+      - series: 'terka_auth_email_refused_total{env="staging",reason="invalid_address"}'
+        values: "_x5 1x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EmailServiceLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              env: staging
+              kind: refused
+            exp_annotations:
+              summary: "staging: the email service refused 1 send(s) for its daily limit in 15 minutes. https://grafana.terka.my.id"
+      - eval_time: 25m
+        alertname: EmailServiceLimit
+        exp_alerts: []
+
+  - name: api down after the target stops reporting
+    interval: 1m
     input_series:
       - series: 'target_info{job="terka-api",env="staging"}'
         values: "1x10 _x10"
@@ -67,11 +128,12 @@ tests:
               env: staging
               job: terka-api
             exp_annotations:
-              summary: "The staging API has reported nothing for 5 minutes. https://grafana.terka.my.id"
+              summary: "staging API has reported nothing for 5 minutes. https://grafana.terka.my.id"
 
-  - interval: 1h
+  - name: 72 emails in a day fires
+    interval: 1h
     input_series:
-      - series: 'terka_auth_email_sent_total{env="staging",outcome="sent"}'
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="ok"}'
         values: "0+3x24"
     alert_rule_test:
       - eval_time: 24h
@@ -80,14 +142,108 @@ tests:
           - exp_labels:
               severity: warning
               env: staging
+              kind: volume
             exp_annotations:
-              summary: "staging is at the email service's daily limit. https://grafana.terka.my.id"
+              summary: "staging: 72 sign-in emails sent in 24 hours, near the email service daily limit. https://grafana.terka.my.id"
 
-  - interval: 1h
+  - name: 71 emails in a day stays quiet
+    interval: 1h
     input_series:
-      - series: 'terka_auth_email_sent_total{env="staging",outcome="sent"}'
+      - series: 'terka_auth_email_sent_total{env="staging",outcome="ok"}'
         values: "0+2.96x24"
     alert_rule_test:
       - eval_time: 24h
         alertname: EmailServiceLimit
+        exp_alerts: []
+
+  - name: more than five server errors fires on the count
+    interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="500"}'
+        values: "0+1x20"
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="200"}'
+        values: "0+1000x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApiErrors
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              env: staging
+              kind: count
+            exp_annotations:
+              summary: "staging API: 10 server errors in 10 minutes. https://grafana.terka.my.id"
+
+  - name: a few errors among little traffic fire on the ratio
+    interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="500"}'
+        values: "0+0.4x20"
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="200"}'
+        values: "0+4x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApiErrors
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              env: staging
+              kind: ratio
+            exp_annotations:
+              summary: "staging API: 9.091% of requests failed with a server error in 10 minutes. https://grafana.terka.my.id"
+
+  - name: one error among little traffic and no traffic at all stay quiet
+    interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="500"}'
+        values: "0x20"
+      - series: 'http_server_request_duration_seconds_count{env="staging",http_route="/x",http_response_status_code="200"}'
+        values: "5x20"
+      - series: 'http_server_request_duration_seconds_count{env="production",http_route="/x",http_response_status_code="500"}'
+        values: "0+0.1x20"
+      - series: 'http_server_request_duration_seconds_count{env="production",http_route="/x",http_response_status_code="200"}'
+        values: "0+1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApiErrors
+        exp_alerts: []
+
+  - name: postgres down fires after a minute, an exporter that answers does not
+    interval: 1m
+    input_series:
+      - series: 'pg_up{instance="a"}'
+        values: "0x5"
+      - series: 'pg_up{instance="b"}'
+        values: "1x5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PostgresDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              env: host
+              instance: a
+            exp_annotations:
+              summary: "VPS: Postgres is not answering the metrics exporter (pg_up is 0). https://grafana.terka.my.id"
+
+  - name: an oom kill fires, a steady count does not
+    interval: 1m
+    input_series:
+      - series: 'node_vmstat_oom_kill{instance="a"}'
+        values: "3x10 4x10"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: OomKill
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: OomKill
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              env: host
+              instance: a
+            exp_annotations:
+              summary: "VPS: the kernel killed 1 process(es) for lack of memory in 10 minutes. https://grafana.terka.my.id"
+      - eval_time: 25m
+        alertname: OomKill
         exp_alerts: []

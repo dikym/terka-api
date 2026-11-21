@@ -12,7 +12,7 @@ alloy=$(image grafana/alloy)
 loki=$(image grafana/loki)
 
 docker run --rm --entrypoint promtool -v "$obs/prometheus:/etc/prometheus:ro" "$prometheus" \
-	check config /etc/prometheus/prometheus.yml
+	check config --lint-fatal /etc/prometheus/prometheus.yml
 docker run --rm --entrypoint promtool -v "$obs/prometheus:/etc/prometheus:ro" "$prometheus" \
 	test rules /etc/prometheus/rules/terka_test.yml
 

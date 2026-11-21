@@ -7,10 +7,17 @@ route:
       receiver: discord-production
 
 # The webhook files are written by Ansible; a webhook URL is a credential and never lives in the repo.
+# The message is set because Discord's default one lists labels only, and the summary carries the value.
 receivers:
   - name: discord-staging
     discord_configs:
       - webhook_url_file: /etc/alertmanager/secrets/discord-staging
+        message: |-
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ end }}
   - name: discord-production
     discord_configs:
       - webhook_url_file: /etc/alertmanager/secrets/discord-production
+        message: |-
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ end }}
