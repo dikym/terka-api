@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/exaring/otelpgx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,7 +28,13 @@ type Auth struct{ pool *pgxpool.Pool }
 
 func open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	// The pool dials lazily, so a database that is down at start does not stop the server.
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("database settings: %w", err)
+	}
+	// Query parameters stay out of spans: the claims of set_config carry user and session ids.
+	cfg.ConnConfig.Tracer = otelpgx.NewTracer()
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("database settings: %w", err)
 	}

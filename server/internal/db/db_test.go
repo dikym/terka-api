@@ -4,16 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/dikym/terka-api/server/internal/db"
 	"github.com/dikym/terka-api/server/internal/dbtest"
 	"github.com/dikym/terka-api/server/internal/migrate"
+	"github.com/dikym/terka-api/server/internal/telemetry"
 	"github.com/dikym/terka-api/server/migrations"
 )
 
@@ -187,5 +192,40 @@ func TestPingReachesTheDatabase(t *testing.T) {
 	}
 	if err := auth.Ping(context.Background()); err != nil {
 		t.Errorf("auth ping: %v", err)
+	}
+}
+
+func TestQueriesBecomeSpansWithoutTheirValues(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(telemetry.NewTracerProvider(nil, sdktrace.WithSyncer(exp)))
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	app, _ := open(t, 1)
+	// otelpgx only records queries that run under a recording span, as they do inside a request.
+	ctx, parent := otel.Tracer("test").Start(context.Background(), "request")
+	defer parent.End()
+	c := db.Claims{UserID: uuid.New(), SessionID: uuid.New()}
+	if err := app.AsUser(ctx, c, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "select 1")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sawSetConfig := false
+	for _, s := range exp.GetSpans() {
+		for _, a := range s.Attributes {
+			v := a.Value.String()
+			if strings.Contains(v, c.UserID.String()) || strings.Contains(v, c.SessionID.String()) {
+				t.Errorf("span %q attribute %s carries a parameter value", s.Name, a.Key)
+			}
+			if strings.Contains(v, "set_config") {
+				sawSetConfig = true
+			}
+		}
+	}
+	if !sawSetConfig {
+		t.Errorf("no span records the set_config query: %v", exp.GetSpans())
 	}
 }
