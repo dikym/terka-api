@@ -12,7 +12,7 @@ DEV_AUTH_PASSWORD := localdevonlyauthpw1
 DEV_DB := localhost:5433/terka_dev
 export TERKA_TEST_DATABASE_URL ?= postgres://postgres:postgres@localhost:5433/postgres
 
-.PHONY: help db dev caddy stack stack-down build image test pgtap lint sqlc
+.PHONY: help db dev caddy stack stack-down build image test pgtap lint ansible sqlc
 
 help:
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -55,6 +55,9 @@ pgtap: db ## run the database tests against a fresh schema
 
 lint: ## format check, vet and lint the server
 	cd server && test -z "$$(gofmt -l .)" && go vet ./... && $(GOLANGCI) run
+
+ansible: ## lint and syntax-check the playbook in the Ansible tools container
+	bash deploy/scripts/ansible-check.sh
 
 sqlc: ## regenerate server/internal/store from server/queries
 	cd server && $(SQLC) generate
