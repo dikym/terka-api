@@ -39,16 +39,42 @@ Menurut aturan keputusan rencana (jumlah kelima layanan ≤ 700 MB, tanpa pembun
 
 ## Pengukuran di VPS
 
-Belum dilakukan. Langkahnya (pemilik): jalankan `spikes/obs-memory/compose.yaml` di VPS selama minimal
-2 jam bersama tumpukan staging, lalu catat `docker stats --no-stream`, `free -m`, dan
-`dmesg | grep -ci 'out of memory'` pada menit 0, 30, dan 120. Disarankan langsung dengan batas
-Grafana 320 MiB.
+Belum dilakukan. Sekarang memakai **tumpukan sungguhan** (`deploy/compose.obs.yaml`, dipasang menurut
+bagian "Observability" di `docs/runbooks/deploy.md`), bukan `spikes/obs-memory/`. Batas memori sudah
+ada di compose: Grafana 320 MiB (`GOMEMLIMIT` 272 MiB), Alloy, Prometheus, dan Loki 192 MiB, Alertmanager
+64 MiB, Tempo 320 MiB. Grafana sudah memakai batas 320 MiB karena pengukuran lokal di atas.
 
-| Menit | Grafana | Tempo | Alloy | Loki | Prometheus | `available` | OOM |
+Pengukuran awal di lokal dengan tumpukan sungguhan (tanpa Tempo): Grafana diam sekitar 309 dari 320 MiB,
+dengan bagian anonim sekitar 255 MiB. Artinya batas Grafana tipis, dan hasil di VPS menentukan apakah
+cukup.
+
+Langkah (pemilik), **[VPS]**: dengan staging hidup (API dan UI ter-deploy, ada lalu lintas atau
+`healthz` jalan) dan tumpukan menyala **tanpa Tempo**, selama minimal 2 jam. Catat pada menit 0, 30,
+dan 120: `docker stats --no-stream`, `free -m`, dan `dmesg | grep -ci 'out of memory'`. Gunakan
+`docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' $(docker ps -q)` untuk memeriksa pembunuhan
+dan restart per container.
+
+| Menit | Grafana | Alloy | Loki | Prometheus | Alertmanager | `available` | OOM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | | | | | | | |
 | 30 | | | | | | | |
 | 120 | | | | | | | |
+
+### Aturan keputusan
+
+Kriteria selesai tahap 2 (spec bagian 9): setelah dua jam dengan staging dan tumpukan hidup, tidak ada
+OOM kill dan `available` minimal 300 MB.
+
+- **Batas Grafana.** Jika Grafana dimatikan kernel atau dimulai ulang, atau pemakaiannya pada menit 120
+  lebih dari 90% batas (di atas sekitar 288 MiB): naikkan `mem_limit` Grafana ke 384 MiB (dan
+  `GOMEMLIMIT` ke 326MiB, sekitar 85%) di `deploy/compose.obs.yaml`, deploy ulang, dan ukur lagi. Naikkan
+  hanya jika `available` tetap minimal 300 MB sesudahnya; jika tidak, kurangi hal lain lebih dulu
+  (retensi Prometheus atau Loki) sebelum menaikkan batas.
+- **Tempo.** Tetap mati (`obs_tempo_enabled: false`) kecuali `available` pada menit 120, dikurangi 320 MiB
+  (batas Tempo), masih minimal 300 MB. Jika ya, nyalakan (runbook deploy, "Observability" langkah 10) dan
+  ulangi pengukuran dua jam; jika tidak lagi memenuhi kriteria, matikan lagi. Jika `available` tanpa Tempo
+  sudah di bawah 300 MB, tumpukan tanpa Tempo pun perlu dikurangi dulu.
+- Catat keputusan dan angkanya di bagian berikut.
 
 ## Keputusan sementara untuk tahap 2
 

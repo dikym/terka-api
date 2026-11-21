@@ -147,3 +147,69 @@ Lapisan pertama sebelum server: **[Cloudflare]** Security, WAF, Rate limiting ru
 Server tetap membatasi sendiri (10 permintaan kode dan 30 verifikasi per IP per jam, 5 kode per alamat per jam, 80 email per jam dan 90 per hari seluruh layanan); aturan ini hanya meredam banjir sebelum sampai ke VPS.
 
 Pemeriksaan (**[Laptop]**): kirim 6 `POST` cepat ke `/api/auth/email/request` dari satu mesin; yang keenam dijawab Cloudflare dengan 429 sebelum mencapai server.
+
+## 10. Grafana dan Access
+
+**Kapan:** fase H, sebelum playbook dijalankan dengan nilai observability (nama tim dan AUD tag masuk vault). Urutan lengkap ada di bagian "Observability" di `deploy.md`.
+
+Grafana ada di `grafana.terka.my.id`, di belakang Cloudflare Access (login email dengan kode sekali pakai). Firewall Lighthouse membuka 443 untuk semua IP Cloudflare, bukan hanya zona ini, jadi Caddy menolak (`403`) permintaan tanpa header Access, dan Grafana memeriksa sendiri JWT-nya (audience harus cocok dengan AUD tag).
+
+### Tim Zero Trust
+
+**[Cloudflare]** Zero Trust (<https://one.dash.cloudflare.com>). Jika belum ada tim, buat dengan nama bebas (misalnya `terka`) dan pilih paket **Free**. Nama tim membentuk `<tim>.cloudflareaccess.com`. Catat nama tim: ini `vault_obs_access_team` (nama saja, tanpa `.cloudflareaccess.com`).
+
+### Metode login
+
+**[Cloudflare]** Zero Trust, Settings, Authentication, Login methods: pastikan **One-time PIN** aktif (aktif bawaan).
+
+### Aplikasi Access
+
+**[Cloudflare]** Zero Trust, Access controls, Applications, **Add an application**, **Self-hosted**:
+
+- *Application name* `grafana`. *Session duration* sesuai selera (misalnya 24 jam).
+- *Public hostname*: subdomain `grafana`, domain `terka.my.id`, tanpa path.
+- Policy: nama `owner`, *Action* **Allow**, *Include* **Emails** berisi email pemilik saja.
+- *Login methods*: hanya **One-time PIN**.
+- Simpan. Buka aplikasi yang baru dibuat, tab **Overview**, dan salin **Application Audience (AUD) Tag**: ini `vault_obs_access_aud`.
+
+Masukkan kedua nilai ke vault (bagian "Observability" langkah 1 di `deploy.md`). Ansible merender `GF_AUTH_JWT_EXPECT_CLAIMS={"aud":"<AUD>"}` dan alamat kunci JWT dari nama tim.
+
+### Record DNS
+
+**[Cloudflare]** DNS, tambah record `A`, nama `grafana`, isi IP VPS, **Proxied** (awan oranye). Jangan membuat record `AAAA`.
+
+Periksa (**[Laptop]**): `dig +short grafana.terka.my.id` memberi alamat Cloudflare, bukan IP VPS.
+
+### Aturan cache
+
+**[Cloudflare]** Caching, Cache Rules, **Create rule**, nama `grafana-bypass`. Pilih **Custom filter expression**, **Edit expression**, tempel:
+
+```
+(http.host eq "grafana.terka.my.id")
+```
+
+*Cache eligibility*: **Bypass cache**. Klik **Deploy**. Tanpa aturan ini Cloudflare bisa menyimpan halaman Grafana yang bergantung pada login.
+
+### Pemeriksaan
+
+**[Laptop]**, setelah tumpukan menyala (langkah 4 di bagian "Observability" `deploy.md`) dan Caddy dibuat ulang (langkah 5):
+
+```sh
+curl -sI https://grafana.terka.my.id | grep -i '^location:'   # https://<tim>.cloudflareaccess.com/...
+curl -s -o /dev/null -w '%{http_code}\n' https://grafana.terka.my.id/api/health   # 302, bukan 200
+```
+
+Harapan: tanpa login, Access mengalihkan ke `cloudflareaccess.com`; Grafana tidak pernah menjawab sendiri. Periksa juga bahwa permintaan tanpa Access ditolak sampai ke asal. **[Laptop]**, melewati Cloudflare langsung ke VPS (443 hanya terbuka untuk Cloudflare, jadi ini harus habis waktu, sama seperti pemeriksaan di bagian 7):
+
+```sh
+curl -sS -m 10 --resolve grafana.terka.my.id:443:<IP VPS> https://grafana.terka.my.id/api/health
+# harus: curl: (28) ... timed out
+```
+
+Dan dari dalam VPS (**[VPS]**) permintaan tanpa header `Cf-Access-Jwt-Assertion` ditolak oleh Caddy:
+
+```sh
+curl -sk -o /dev/null -w '%{http_code}\n' --resolve grafana.terka.my.id:443:127.0.0.1 https://grafana.terka.my.id/api/health   # 403
+```
+
+Terakhir, **[Laptop]** (browser): buka `https://grafana.terka.my.id`, masukkan email pemilik dan PIN dari email; Grafana terbuka sebagai Admin. Email lain tidak menerima PIN.

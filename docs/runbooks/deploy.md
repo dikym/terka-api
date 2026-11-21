@@ -38,6 +38,7 @@ Runbook ini dan `docs/runbooks/cloudflare.md` dikerjakan **bergantian**, bukan s
 | E | Laptop (browser) | Firewall Lighthouse (`cloudflare.md` langkah 6) | Aturan 443 hanya untuk Cloudflare, 22 terbuka |
 | F | Laptop dan VPS | Bagian "Deploy otomatis": kunci CI, secret GitHub, lalu deploy API, kemudian UI | `/healthz` dan `/_app/version.json` melaporkan SHA terbaru |
 | G | Laptop (browser) | Aturan cache dan batas laju (`cloudflare.md` langkah 5 dan 9), lalu pemeriksaan (`cloudflare.md` langkah 7 dan "Pemeriksaan setelah deploy" di bagian "Login") | Semua pemeriksaan menghasilkan nilai yang diharapkan |
+| H | Laptop dan VPS | Observability: Cloudflare Access dan record `grafana` (`cloudflare.md` bagian 10), webhook Discord ke vault dan secret GitHub, lalu bagian "Observability" | Alert uji sampai ke Discord staging, Grafana terbuka lewat Access, workflow `healthz` hijau |
 
 Alasan urutannya:
 
@@ -47,6 +48,7 @@ Alasan urutannya:
 - D memerlukan B (folder `/opt/terka/infra/certs`) dan sertifikat dari A2. Caddy gagal mulai tanpa kedua berkas sertifikat itu.
 - E sesudah D, supaya Anda bisa memastikan situs menjawab sebelum 443 ditutup untuk selain Cloudflare.
 - Langkah 5 dan 9 di `cloudflare.md` baru bisa diperiksa setelah F, karena pemeriksaannya butuh API dan UI yang sudah berjalan.
+- H sesudah F: membuat ulang container API dan UI (langkah 5 di "Observability") butuh deploy yang berjalan. Di dalam H, bagian 10 `cloudflare.md` dikerjakan lebih dulu, karena nama tim dan AUD tag masuk vault sebelum playbook.
 - Jangan mengerjakan `cloudflare.md` dari langkah 1 sampai 9 berurutan sekaligus.
 
 ## Menyiapkan VPS
@@ -96,7 +98,7 @@ Semua perintah `ansible`, `ansible-vault`, dan `ansible-playbook` dijalankan dar
 
 ### Vault
 
-Vault menyimpan semua rahasia dalam satu berkas terenkripsi, `group_vars/all/vault.yml`. Bentuknya ada di `vault.example.yml`: 11 kunci, semua diawali `vault_`.
+Vault menyimpan semua rahasia dalam satu berkas terenkripsi, `group_vars/all/vault.yml`. Bentuknya ada di `vault.example.yml`: 17 kunci, semua diawali `vault_`. Enam kunci terakhir (observability) dijelaskan di bagian "Observability".
 
 **Membuat.** Jalankan di dalam `tmux` supaya koneksi SSH yang putus tidak menghilangkan pekerjaan Anda (sambungkan lagi dengan `tmux attach -t vault`):
 
@@ -125,6 +127,7 @@ Di Vim: tekan `i` untuk mengetik, `Esc` untuk keluar dari mode insert, lalu `:wq
 | `vault_google_client_secret` | Google Cloud Console (bagian "Login") |
 | `vault_staging_turnstile_secret` | *Secret key* widget Turnstile (`cloudflare.md` langkah 8) |
 | `vault_smtp_url` | Resend (bagian "Login"): `smtp+starttls://resend:<api key>@smtp.resend.com:587` |
+| `vault_monitor_password`, `vault_grafana_admin_password`, `vault_discord_webhook_staging`, `vault_discord_webhook_production`, `vault_obs_access_team`, `vault_obs_access_aud` | Bagian "Observability", langkah 1. Playbook gagal (`is undefined`) selama keenamnya belum ada |
 
 Empat kata sandi pertama dibuat dengan perintah di bawah. Setiap kata sandi harus berbeda dan hanya hex, karena nilainya masuk ke URL koneksi dan berkas `.env` tanpa tanda kutip:
 
@@ -153,7 +156,7 @@ vault_smtp_url: smtp+starttls://resend:re_...@smtp.resend.com:587
 
 ```sh
 head -1 group_vars/all/vault.yml                                   # $ANSIBLE_VAULT;1.1;AES256
-ansible-vault view group_vars/all/vault.yml | grep -c '^vault_'    # 11
+ansible-vault view group_vars/all/vault.yml | grep -c '^vault_'    # 17
 ansible-vault view group_vars/all/vault.yml | cut -d: -f1 | cat -A # nama kunci saja
 ```
 
@@ -558,6 +561,169 @@ Membuktikan bahwa versi rusak dibuang otomatis tanpa pernah melayani lalu lintas
 | --- | --- | --- | --- | --- | --- |
 | (belum dilatih) | | | | | |
 
+## Observability
+
+Tumpukan observability (Alloy, Prometheus, Alertmanager, Loki, Grafana, dan Tempo yang opsional) berjalan di VPS yang sama untuk semua lingkungan, di `/opt/terka/obs/`. Playbook hanya menyalin berkasnya, seperti pada Postgres: Anda yang menyalakannya dengan tangan. Grafana hanya bisa dibuka lewat Cloudflare Access (`cloudflare.md` bagian 10); alert dikirim ke Discord, dan pemantau dari luar VPS berjalan di GitHub Actions.
+
+Kerjakan setelah fase F (API dan UI sudah ter-deploy), karena langkah 5 membuat ulang container API dan UI.
+
+### 1. Nilai baru di vault
+
+Enam kunci baru di `group_vars/all/vault.yml` (total 17). Bentuknya ada di `vault.example.yml`.
+
+| Kunci | Asal |
+| --- | --- |
+| `vault_monitor_password` | `openssl rand -hex 24`. Kata sandi role Postgres `terka_monitor` |
+| `vault_grafana_admin_password` | `openssl rand -hex 24`. Admin lokal Grafana (jalan darurat, langkah 8) |
+| `vault_discord_webhook_staging` | **[Laptop]** (Discord) Server Settings, Integrations, Webhooks, New Webhook di channel staging, **Copy Webhook URL** |
+| `vault_discord_webhook_production` | Sama, untuk channel production |
+| `vault_obs_access_team` | Nama tim Zero Trust saja, tanpa `.cloudflareaccess.com` (`cloudflare.md` bagian 10) |
+| `vault_obs_access_aud` | AUD tag aplikasi Access (`cloudflare.md` bagian 10) |
+
+URL webhook adalah kredensial: jangan ditempel ke chat atau repo. Playbook menuliskannya ke `/opt/terka/obs/secrets/discord-staging` dan `discord-production` (mode `0400`), dan `GF_AUTH_JWT_EXPECT_CLAIMS={"aud":"<AUD>"}` dirender Ansible ke `/opt/terka/obs/grafana.env`, jadi tidak ada yang perlu ditulis tangan.
+
+**[VPS]** dalam `~/terka-api/deploy/ansible`:
+
+```sh
+ansible-vault edit group_vars/all/vault.yml
+ansible-vault view group_vars/all/vault.yml | grep -c '^vault_'    # 17
+```
+
+### 2. Jalankan playbook
+
+**[Laptop]** `rsync` ulang `deploy/` ke VPS (langkah 2 "Sekali saja"). **[VPS]** jalankan playbook (perintah di "Jalan berikutnya").
+
+**Perhatian: jalan pertama sesudah perubahan ini me-restart Docker.** Playbook mengatur `{"log-driver": "journald"}` di `/etc/docker/daemon.json` lalu me-restart `docker`, sehingga **semua container berhenti sebentar** (Postgres, Caddy, API, UI): situs mati beberapa detik sampai container ber-`restart: unless-stopped` naik lagi. Lakukan di jam sepi. Playbook juga membuat jurnal sistem permanen dengan batas 1 GB (`/etc/systemd/journald.conf.d/terka.conf`) dan membuat network `terka-obs`.
+
+Container yang sudah ada **tetap memakai driver log lama** (`json-file`) sampai dibuat ulang; hanya container baru yang masuk jurnal. Langkah 5 membuat ulang Caddy, API, dan UI.
+
+Periksa (**[VPS]**):
+
+```sh
+docker info --format '{{.LoggingDriver}}'      # journald
+docker network inspect -f '{{.Name}}' terka-obs
+sudo ls -l /opt/terka/obs                      # compose.obs.yaml, .env, alloy.env, grafana.env, monitor.env, secrets/
+docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml ps   # Postgres dan Caddy kembali running
+```
+
+### 3. Role Postgres untuk pemantauan
+
+**[VPS]** sebagai `deploy` (`sudo -iu deploy`). Playbook menulis kata sandinya ke `/opt/terka/obs/monitor.env` sebagai `MONITOR_PASSWORD=...`; skrip membacanya dari lingkungan. Postgres harus sudah berjalan.
+
+```sh
+set -a; . /opt/terka/obs/monitor.env; set +a
+/opt/terka/bin/create-monitor-role.sh
+```
+
+Harapan: `role terka_monitor is ready`. Skrip boleh dijalankan ulang; ia menyetel ulang kata sandi ke nilai di `monitor.env`, jadi jalankan lagi setiap kali `vault_monitor_password` berubah.
+
+`terka_monitor` anggota `pg_monitor` dan tidak punya hak atas tabel mana pun, jadi tidak membaca data pengguna. Sifat yang perlu diketahui: `pg_monitor` membuat role ini melihat teks query semua database di `pg_stat_activity`.
+
+### 4. Nyalakan tumpukan
+
+**[VPS]** sebagai `deploy`:
+
+```sh
+docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml up -d --wait
+docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml ps
+```
+
+Harapan: Alloy, Prometheus, Alertmanager, Loki, dan Grafana `running`. Tempo tidak ikut (butuh `--profile tempo`, langkah 10). Grafana dipublikasikan hanya di `127.0.0.1:3000`. Pemeriksaan: `docker stats --no-stream` menunjukkan batas memori tiap container (Grafana 320 MiB).
+
+Grafana membaca kata sandi admin **hanya saat pertama kali membuat databasenya**. Mengubah `vault_grafana_admin_password` sesudahnya tidak berpengaruh. Untuk menggantinya, jalankan di container (sintaks menurut dokumentasi Grafana; periksa dengan `grafana cli admin reset-admin-password --help` di versi 13.3.1):
+
+```sh
+docker exec terka-obs-grafana-1 grafana cli admin reset-admin-password '<kata sandi baru>'
+```
+
+### 5. Buat ulang Caddy, API, dan UI
+
+**[VPS]** sebagai `deploy`. Caddy bergabung ke `terka-obs` (agar bisa meneruskan ke Grafana dan agar Alloy bisa mengambil metriknya) dan memakai `journald`; situs tidak bisa diakses beberapa detik.
+
+```sh
+docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d caddy
+```
+
+Lalu deploy ulang SHA yang sedang jalan, supaya container API dan UI baru dibuat dengan driver `journald` (ulangi per lingkungan):
+
+```sh
+/opt/terka/bin/deploy.sh api staging "$(cat /opt/terka/staging/api.current)"
+/opt/terka/bin/deploy.sh web staging "$(cat /opt/terka/staging/web.current)"
+```
+
+Periksa:
+
+```sh
+docker inspect -f '{{.Name}} {{.HostConfig.LogConfig.Type}}' $(docker ps -q)   # journald untuk Caddy, API, UI, dan tumpukan obs
+curl -s https://staging.terka.my.id/healthz                                     # SHA API
+```
+
+Postgres tetap `json-file` sampai dibuat ulang, dan lognya tidak masuk Loki. Itu boleh dibiarkan; kalau ingin, buat ulang di jam sepi dengan `docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d --force-recreate postgres` (koneksi API putus beberapa detik).
+
+### 6. Buka Grafana lewat Access
+
+**[Laptop]** (browser) buka <https://grafana.terka.my.id>, masukkan email pemilik, lalu kode PIN dari email. Harapan: masuk sebagai Admin; sumber data Prometheus dan Loki ada; dashboard Terka terisi. Pemeriksaan keamanan ada di `cloudflare.md` bagian 10.
+
+Satu request bisa ditelusuri: di Explore, sumber data Loki, kueri `{job="journal"} | trace_id="<id>"` (ambil `trace_id` dari satu baris log API) menampilkan baris log akses dan log auth untuk request itu.
+
+### 7. Alert uji
+
+**[VPS]** sebagai `deploy`. `amtool` ada di container `alertmanager` dan butuh alamat Alertmanager lewat `--alertmanager.url`:
+
+```sh
+docker exec terka-obs-alertmanager-1 amtool alert add Test env=staging \
+  --annotation=summary='Alert uji dari amtool' --alertmanager.url=http://localhost:9093
+```
+
+Harapan: pesan muncul di channel Discord staging dalam sekitar satu menit (`group_wait` bawaan 30 detik). Label `env=production` mengirim ke channel production. Alert uji berakhir sendiri setelah beberapa menit. Jika pesan tidak datang, lihat "Masalah umum".
+
+### 8. Jalan darurat ke Grafana
+
+Jika Cloudflare Access atau DNS bermasalah. **[Laptop]**:
+
+```sh
+ssh -L 3000:127.0.0.1:3000 terka-admin@<ip-vps>
+```
+
+Biarkan sesi terbuka, lalu buka <http://localhost:3000> dan masuk sebagai `admin` dengan `vault_grafana_admin_password`. Port 3000 hanya di loopback VPS, jadi tidak ada jalan lain dari internet.
+
+### 9. Pemantau dari luar dan secret GitHub
+
+Dua workflow terjadwal di repo `terka-api`: `healthz` (setiap 5 menit, memeriksa `https://staging.terka.my.id/healthz`, mengirim pesan ke Discord hanya saat keadaan berubah: mati atau pulih) dan `dns-check` (Senin 01:00 UTC, SPF, DKIM, dan DMARC email).
+
+**[Laptop]** (browser) di repo `terka-api`, Settings, Secrets and variables, Actions, **New repository secret**:
+
+| Secret | Isi |
+| --- | --- |
+| `DISCORD_WEBHOOK_STAGING` | URL webhook channel staging (sama dengan nilai vault); dipakai `healthz` |
+| `DISCORD_WEBHOOK_PRODUCTION` | URL webhook channel production; dipakai `dns-check` |
+
+Periksa: tab Actions, workflow `healthz`, **Run workflow** (cabang `main`); harapan hijau tanpa pesan. Uji pesan: hentikan container API staging sebentar (`docker stop <container api>` di VPS, lalu `docker start`) dan tunggu jadwal berikutnya: pesan "tidak menjawab", lalu "pulih" setelah dinyalakan lagi.
+
+Batasan jadwal GitHub:
+
+- Workflow terjadwal hanya jalan dari **cabang bawaan** (`main`).
+- Jadwal bisa terlambat 5 sampai 30 menit, jadi "setiap 5 menit" adalah niat, bukan jaminan.
+- Di repo **publik**, jadwal dimatikan otomatis setelah 60 hari tanpa aktivitas di repo. Buka tab Actions dan aktifkan lagi (**Enable workflow**); aktivitas apa pun, seperti satu push, memulai hitungan baru.
+- Selama staging mati, GitHub juga mengirim email ke pemilik pada **setiap** run terjadwal yang gagal, selain pesan Discord yang hanya sekali.
+
+### 10. Menyalakan Tempo (opsional)
+
+Trace tetap dibuat aplikasi, tetapi kolektor membuangnya. Nyalakan Tempo hanya jika aturan keputusan di `docs/spikes/2026-11-observability-memory.md` terpenuhi. **[Laptop]** ubah `obs_tempo_enabled: true` di `deploy/ansible/group_vars/all/main.yml`, `rsync` ke VPS. **[VPS]** jalankan playbook, lalu sebagai `deploy`:
+
+```sh
+docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml --profile tempo up -d --wait
+docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml restart alloy grafana
+```
+
+Playbook mengganti `alloy/traces-drop.alloy` dengan `traces-tempo.alloy` dan memasang sumber data Tempo. Alloy dan Grafana membaca berkas itu saat mulai, jadi keduanya di-restart. Tempo punya batas 320 MiB.
+
+Mematikan Tempo: `obs_tempo_enabled: false`, `rsync`, playbook, lalu `docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml --profile tempo rm -sf tempo` dan `restart alloy grafana`. Sumber data Tempo **tetap ada di database Grafana**; hapus lewat UI (Connections, Data sources) jika mau.
+
+### 11. Uji memori dua jam
+
+Langkah pengukuran memakai tumpukan sungguhan dan staging hidup; caranya, tabel hasil, dan aturan keputusan ada di `docs/spikes/2026-11-observability-memory.md` ("Pengukuran di VPS").
+
 ## Masalah umum
 
 | Gejala | Penyebab | Perbaikan |
@@ -581,3 +747,8 @@ Membuktikan bahwa versi rusak dibuang otomatis tanpa pernah melayani lalu lintas
 | `DEPRECATION WARNING ... to_native` | Berasal dari collection `ansible.posix` | Abaikan, atau perbarui collection (bagian "Jalan pertama") |
 | API tidak sehat setelah latihan rollback, padahal commitnya sama dengan `main` | Image latihan didorong dengan SHA commit yang sudah ada di `main`, sehingga tag sehat milik CI tertimpa | **[Laptop]** (browser) GitHub, Actions, `ci`, run untuk commit itu, **Re-run all jobs**: membangun ulang image bersih dan memicu `deploy`. Sementara itu, di VPS jalankan `deploy.sh api staging <SHA commit lain yang lulus ci>`. Cegah dengan langkah 2 di "Latihan rollback" |
 | `swapon --show` menampilkan dua swap | `/swap.img` bawaan image ditambah `/swapfile` dari playbook versi lama | Aman dibiarkan; playbook sekarang tidak membuat `/swapfile` jika sudah ada swap |
+| Grafana mati atau tidak sehat | Memori Grafana habis di batas 320 MiB, atau pengaturan JWT Access salah | `docker logs terka-obs-grafana-1`; cari `out of memory` di `dmesg`. Aturan menaikkan batas ada di spike memori |
+| Alert uji tidak sampai ke Discord | URL webhook salah, atau Alertmanager tidak bisa membaca berkasnya | `docker logs terka-obs-alertmanager-1`; `sudo ls -l /opt/terka/obs/secrets` (pemilik `65534`, mode `0400`); perbaiki vault, jalankan playbook, lalu `docker restart terka-obs-alertmanager-1` |
+| `https://grafana.terka.my.id` menjawab `403` | Permintaan tidak membawa header Access, atau JWT tidak lolos | Buka lewat browser dengan login Access; periksa `vault_obs_access_team` dan `vault_obs_access_aud`; jalan darurat di "Observability" langkah 8 |
+| Log container tidak muncul di Loki | Container masih memakai driver `json-file` | `docker inspect -f '{{.HostConfig.LogConfig.Type}}' <container>`; buat ulang (langkah 5 "Observability") |
+| Metrik Postgres kosong atau `PostgresDown` menyala | Role `terka_monitor` belum dibuat atau kata sandinya berbeda | Langkah 3 "Observability" |
