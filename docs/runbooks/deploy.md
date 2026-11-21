@@ -48,7 +48,7 @@ Alasan urutannya:
 - D memerlukan B (folder `/opt/terka/infra/certs`) dan sertifikat dari A2. Caddy gagal mulai tanpa kedua berkas sertifikat itu.
 - E sesudah D, supaya Anda bisa memastikan situs menjawab sebelum 443 ditutup untuk selain Cloudflare.
 - Langkah 5 dan 9 di `cloudflare.md` baru bisa diperiksa setelah F, karena pemeriksaannya butuh API dan UI yang sudah berjalan.
-- H sesudah F: membuat ulang container API dan UI (langkah 5 di "Observability") butuh deploy yang berjalan. Di dalam H, bagian 10 `cloudflare.md` dikerjakan lebih dulu, karena nama tim dan AUD tag masuk vault sebelum playbook.
+- H sesudah F: membuat ulang container API dan UI (langkah 4 di "Observability") butuh deploy yang berjalan. Di dalam H, bagian 10 `cloudflare.md` dikerjakan lebih dulu, karena nama tim dan AUD tag masuk vault sebelum playbook.
 - Jangan mengerjakan `cloudflare.md` dari langkah 1 sampai 9 berurutan sekaligus.
 
 ## Menyiapkan VPS
@@ -565,7 +565,7 @@ Membuktikan bahwa versi rusak dibuang otomatis tanpa pernah melayani lalu lintas
 
 Tumpukan observability (Alloy, Prometheus, Alertmanager, Loki, Grafana, dan Tempo yang opsional) berjalan di VPS yang sama untuk semua lingkungan, di `/opt/terka/obs/`. Playbook hanya menyalin berkasnya, seperti pada Postgres: Anda yang menyalakannya dengan tangan. Grafana hanya bisa dibuka lewat Cloudflare Access (`cloudflare.md` bagian 10); alert dikirim ke Discord, dan pemantau dari luar VPS berjalan di GitHub Actions.
 
-Kerjakan setelah fase F (API dan UI sudah ter-deploy), karena langkah 5 membuat ulang container API dan UI.
+Kerjakan setelah fase F (API dan UI sudah ter-deploy), karena langkah 4 membuat ulang container API dan UI.
 
 ### 1. Nilai baru di vault
 
@@ -595,7 +595,7 @@ ansible-vault view group_vars/all/vault.yml | grep -c '^vault_'    # 17
 
 **Perhatian: jalan pertama sesudah perubahan ini me-restart Docker.** Playbook mengatur `{"log-driver": "journald"}` di `/etc/docker/daemon.json` lalu me-restart `docker`, sehingga **semua container berhenti sebentar** (Postgres, Caddy, API, UI): situs mati beberapa detik sampai container ber-`restart: unless-stopped` naik lagi. Lakukan di jam sepi. Playbook juga membuat jurnal sistem permanen dengan batas 1 GB (`/etc/systemd/journald.conf.d/terka.conf`) dan membuat network `terka-obs`.
 
-Container yang sudah ada **tetap memakai driver log lama** (`json-file`) sampai dibuat ulang; hanya container baru yang masuk jurnal. Langkah 5 membuat ulang Caddy, API, dan UI.
+Container yang sudah ada **tetap memakai driver log lama** (`json-file`) sampai dibuat ulang; hanya container baru yang masuk jurnal. Langkah 4 membuat ulang Caddy, API, dan UI.
 
 Periksa (**[VPS]**):
 
@@ -619,24 +619,9 @@ Harapan: `role terka_monitor is ready`. Skrip boleh dijalankan ulang; ia menyete
 
 `terka_monitor` anggota `pg_monitor` dan tidak punya hak atas tabel mana pun, jadi tidak membaca data pengguna. Sifat yang perlu diketahui: `pg_monitor` membuat role ini melihat teks query semua database di `pg_stat_activity`.
 
-### 4. Nyalakan tumpukan
+### 4. Buat ulang Caddy, API, dan UI
 
-**[VPS]** sebagai `deploy`:
-
-```sh
-docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml up -d --wait
-docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml ps
-```
-
-Harapan: Alloy, Prometheus, Alertmanager, Loki, dan Grafana `running`. Tempo tidak ikut (butuh `--profile tempo`, langkah 10). Grafana dipublikasikan hanya di `127.0.0.1:3000`. Pemeriksaan: `docker stats --no-stream` menunjukkan batas memori tiap container (Grafana 320 MiB).
-
-Grafana membaca kata sandi admin **hanya saat pertama kali membuat databasenya**. Mengubah `vault_grafana_admin_password` sesudahnya tidak berpengaruh. Untuk menggantinya, jalankan di container (sintaks menurut dokumentasi Grafana; periksa dengan `grafana cli admin reset-admin-password --help` di versi 13.3.1):
-
-```sh
-docker exec terka-obs-grafana-1 grafana cli admin reset-admin-password '<kata sandi baru>'
-```
-
-### 5. Buat ulang Caddy, API, dan UI
+Dikerjakan sebelum tumpukan menyala. Container API lama belum punya alamat Alloy di lingkungannya, jadi tidak mengirim metrik; jika tumpukan menyala lebih dulu, `ApiDown` menyala dan dikirim ke Discord. Sampai langkah 5 selesai, API mencatat peringatan `telemetry export failed` dan `grafana.terka.my.id` menjawab `502`: keduanya wajar.
 
 **[VPS]** sebagai `deploy`. Caddy bergabung ke `terka-obs` (agar bisa meneruskan ke Grafana dan agar Alloy bisa mengambil metriknya) dan memakai `journald`; situs tidak bisa diakses beberapa detik.
 
@@ -654,11 +639,28 @@ Lalu deploy ulang SHA yang sedang jalan, supaya container API dan UI baru dibuat
 Periksa:
 
 ```sh
-docker inspect -f '{{.Name}} {{.HostConfig.LogConfig.Type}}' $(docker ps -q)   # journald untuk Caddy, API, UI, dan tumpukan obs
+docker inspect -f '{{.Name}} {{.HostConfig.LogConfig.Type}}' $(docker ps -q)   # journald untuk Caddy, API, dan UI
 curl -s https://staging.terka.my.id/healthz                                     # SHA API
 ```
 
-Postgres tetap `json-file` sampai dibuat ulang, dan lognya tidak masuk Loki. Itu boleh dibiarkan; kalau ingin, buat ulang di jam sepi dengan `docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d --force-recreate postgres` (koneksi API putus beberapa detik).
+Postgres tetap `json-file` sampai dibuat ulang, dan lognya tidak masuk Loki. Itu boleh dibiarkan. Alloy membuang baris `DETAIL:` dari Postgres (isinya bisa memuat nilai kunci seperti email), jadi memindahkannya ke jurnal aman; kalau ingin, buat ulang di jam sepi dengan `docker compose -p terka-infra -f /opt/terka/infra/compose.infra.yaml up -d --force-recreate postgres` (koneksi API putus beberapa detik).
+
+### 5. Nyalakan tumpukan
+
+**[VPS]** sebagai `deploy`:
+
+```sh
+docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml up -d --wait
+docker compose -p terka-obs -f /opt/terka/obs/compose.obs.yaml ps
+```
+
+Harapan: Alloy, Prometheus, Alertmanager, Loki, dan Grafana `running`. Metrik API yang dibuat ulang di langkah 4 mulai masuk dalam satu menit, jadi `ApiDown` tidak menyala. Jika Prometheus menilai aturan sebelum kiriman pertama tiba, satu pesan `ApiDown` disusul pesan pulih bisa muncul di Discord pada menit pertama; abaikan. Tempo tidak ikut (butuh `--profile tempo`, langkah 10). Grafana dipublikasikan hanya di `127.0.0.1:3000`. Pemeriksaan: `docker stats --no-stream` menunjukkan batas memori tiap container (Grafana 320 MiB).
+
+Grafana membaca kata sandi admin **hanya saat pertama kali membuat databasenya**. Mengubah `vault_grafana_admin_password` sesudahnya tidak berpengaruh. Untuk menggantinya, jalankan di container (sintaks menurut dokumentasi Grafana; periksa dengan `grafana cli admin reset-admin-password --help` di versi 13.3.1):
+
+```sh
+docker exec terka-obs-grafana-1 grafana cli admin reset-admin-password '<kata sandi baru>'
+```
 
 ### 6. Buka Grafana lewat Access
 
@@ -750,5 +752,5 @@ Langkah pengukuran memakai tumpukan sungguhan dan staging hidup; caranya, tabel 
 | Grafana mati atau tidak sehat | Memori Grafana habis di batas 320 MiB, atau pengaturan JWT Access salah | `docker logs terka-obs-grafana-1`; cari `out of memory` di `dmesg`. Aturan menaikkan batas ada di spike memori |
 | Alert uji tidak sampai ke Discord | URL webhook salah, atau Alertmanager tidak bisa membaca berkasnya | `docker logs terka-obs-alertmanager-1`; `sudo ls -l /opt/terka/obs/secrets` (pemilik `65534`, mode `0400`); perbaiki vault, jalankan playbook, lalu `docker restart terka-obs-alertmanager-1` |
 | `https://grafana.terka.my.id` menjawab `403` | Permintaan tidak membawa header Access, atau JWT tidak lolos | Buka lewat browser dengan login Access; periksa `vault_obs_access_team` dan `vault_obs_access_aud`; jalan darurat di "Observability" langkah 8 |
-| Log container tidak muncul di Loki | Container masih memakai driver `json-file` | `docker inspect -f '{{.HostConfig.LogConfig.Type}}' <container>`; buat ulang (langkah 5 "Observability") |
+| Log container tidak muncul di Loki | Container masih memakai driver `json-file` | `docker inspect -f '{{.HostConfig.LogConfig.Type}}' <container>`; buat ulang (langkah 4 "Observability") |
 | Metrik Postgres kosong atau `PostgresDown` menyala | Role `terka_monitor` belum dibuat atau kata sandinya berbeda | Langkah 3 "Observability" |

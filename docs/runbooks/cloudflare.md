@@ -192,7 +192,7 @@ Periksa (**[Laptop]**): `dig +short grafana.terka.my.id` memberi alamat Cloudfla
 
 ### Pemeriksaan
 
-**[Laptop]**, setelah tumpukan menyala (langkah 4 di bagian "Observability" `deploy.md`) dan Caddy dibuat ulang (langkah 5):
+**[Laptop]**, setelah Caddy dibuat ulang (langkah 4 di bagian "Observability" `deploy.md`) dan tumpukan menyala (langkah 5):
 
 ```sh
 curl -sI https://grafana.terka.my.id | grep -i '^location:'   # https://<tim>.cloudflareaccess.com/...
