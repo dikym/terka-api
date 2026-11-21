@@ -1,3 +1,9 @@
+{
+	servers {
+		metrics
+	}
+}
+
 import /etc/caddy/Caddyfile.routes
 
 # Cloudflare connects over 443 with Full (strict) TLS and checks this Origin CA certificate.
@@ -6,4 +12,21 @@ staging.terka.my.id {
 	# Origin-to-Cloudflare traffic counts against the VPS transfer quota.
 	encode zstd gzip
 	import routes terka-staging
+}
+
+grafana.terka.my.id {
+	tls /certs/origin.pem /certs/origin-key.pem
+	encode zstd gzip
+	import grafana
+}
+
+# Scraped by Alloy over terka-obs. Not published to the host, and Cloudflare only reaches 443.
+# The admin API stays on its default loopback address inside the container.
+http://:2020 {
+	handle /metrics {
+		metrics
+	}
+	handle {
+		respond 404
+	}
 }

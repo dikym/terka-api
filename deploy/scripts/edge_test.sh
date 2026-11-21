@@ -37,12 +37,19 @@ stand_in() {
 }
 api_id=$(stand_in api)
 containers+=("$api_id" "$(stand_in web)")
+# Logs every request it receives, so a test can tell a request was never proxied.
+grafana_id=$(docker run -d --network "$network" --network-alias grafana "$stand_in_image" \
+	caddy respond --listen :3000 --access-log --body grafana)
+containers+=("$grafana_id")
 
 cat >"$work/Caddyfile" <<'CADDY'
 {
 	auto_https off
 }
 import /etc/caddy/Caddyfile.routes
+http://grafana.terka.my.id:8443 {
+	import grafana
+}
 :8443 {
 	import routes terka-staging
 }
@@ -64,6 +71,18 @@ for pair in /api=api /api/x=api /api/sync/pull/review_logs=api /healthz=api /rea
 	got=$(curl -s "http://127.0.0.1:18095$path")
 	if [ "$got" = "$want" ]; then pass "$path goes to $want"; else fail "$path goes to $want" "got: ${got:-nothing}"; fi
 done
+
+grafana_get() { curl -s -o /dev/null -w '%{http_code}' -H 'Host: grafana.terka.my.id' "$@" http://127.0.0.1:18095/; }
+requests() { docker logs "$grafana_id" 2>&1 | grep -c '"method"'; }
+name="grafana without an access token is refused"
+code=$(grafana_get)
+if [ "$code" = 403 ] && [ "$(requests)" = 0 ]; then pass "$name"; else fail "$name" "got: $code, requests: $(requests)"; fi
+name="grafana with an empty access token is refused"
+code=$(grafana_get -H 'Cf-Access-Jwt-Assertion;')
+if [ "$code" = 403 ] && [ "$(requests)" = 0 ]; then pass "$name"; else fail "$name" "got: $code, requests: $(requests)"; fi
+name="grafana with an access token is proxied"
+got=$(curl -s -H 'Host: grafana.terka.my.id' -H 'Cf-Access-Jwt-Assertion: x' http://127.0.0.1:18095/)
+if [ "$got" = grafana ] && [ "$(requests)" = 1 ]; then pass "$name"; else fail "$name" "got: ${got:-nothing}"; fi
 
 # A deploy replaces the api container: for a moment no container answers to the alias at all.
 docker rm -f "$api_id" >/dev/null

@@ -129,6 +129,17 @@ else
 	fail "the observability stack reads its own settings and none of the app's" "$foreign"
 fi
 
+mkdir -p "$work/infra"
+cp "$repo/deploy/compose.infra.yaml" "$work/infra/"
+printf 'POSTGRES_PASSWORD=dummy\n' >"$work/infra/.env"
+infra=$(docker compose -f "$work/infra/compose.infra.yaml" config --format json)
+caddy=$(jq -c '.services.caddy | {networks: (.networks | keys), ports: [.ports[] | "\(.host_ip):\(.published):\(.target)"]}' <<<"$infra")
+if [ "$caddy" = '{"networks":["terka-edge","terka-obs"],"ports":["0.0.0.0:443:443"]}' ]; then
+	pass "caddy joins the observability network and publishes only 443"
+else
+	fail "caddy joins the observability network and publishes only 443" "$caddy"
+fi
+
 if [ "$failures" -gt 0 ]; then
 	echo "$failures failed"
 	exit 1

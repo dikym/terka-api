@@ -20,3 +20,12 @@
 		}
 	}
 }
+
+# Grafana trusts the Cloudflare Access JWT, so a request that reached the origin without one did
+# not pass through Access and must not reach it. "header <field> *" matches an empty value, so a
+# regexp requires at least one character.
+(grafana) {
+	@noaccess not header_regexp Cf-Access-Jwt-Assertion .+
+	respond @noaccess 403
+	reverse_proxy grafana:3000
+}

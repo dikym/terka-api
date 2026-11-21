@@ -46,8 +46,8 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     # Not on terka: the edge never reaches Postgres, and sees an api or web container only once
-    # deploy.sh has admitted it.
-    networks: [terka-edge]
+    # deploy.sh has admitted it. terka-obs lets Caddy reach Grafana and lets Alloy scrape its metrics.
+    networks: [terka-edge, terka-obs]
 
 networks:
   terka:
@@ -55,6 +55,10 @@ networks:
   # Created by Ansible, because running containers must join it before Caddy is recreated on it.
   terka-edge:
     name: terka-edge
+    external: true
+  # Created by Ansible together with the observability stack.
+  terka-obs:
+    name: terka-obs
     external: true
 
 volumes:
