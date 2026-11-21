@@ -39,3 +39,15 @@ terka_auth:
     turnstile_hostnames: staging.terka.my.id
     smtp_url: "{{ vault_smtp_url }}"
     mail_from: Terka <no-reply@terka.my.id>
+
+# Observability stack. Turning Tempo on also needs --profile tempo when the stack is started.
+obs_tempo_enabled: false
+# Hex passwords only, like the database ones: they go into a connection URL and env files.
+obs_monitor_password: "{{ vault_monitor_password }}"
+obs_grafana_admin_password: "{{ vault_grafana_admin_password }}"
+obs_discord_webhooks:
+  staging: "{{ vault_discord_webhook_staging }}"
+  production: "{{ vault_discord_webhook_production }}"
+# Cloudflare Zero Trust team name (<team>.cloudflareaccess.com) and the Access application's AUD tag.
+obs_access_team: "{{ vault_obs_access_team }}"
+obs_access_aud: "{{ vault_obs_access_aud }}"

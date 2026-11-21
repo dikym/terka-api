@@ -1,0 +1,118 @@
+---
+# Installs the observability stack at {{ terka_root }}/obs. Like the infra stack, it is started by
+# hand from the runbook, not here.
+- name: Create the observability directories
+  ansible.builtin.file:
+    path: "{{ terka_root }}/obs/{{ item.path }}"
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "", mode: "0750" }
+    # Mounted into containers that run as their own users, not as deploy.
+    - { path: alertmanager, mode: "0755" }
+    - { path: alloy, mode: "0755" }
+    - { path: grafana, mode: "0755" }
+    - { path: grafana/dashboards, mode: "0755" }
+    - { path: grafana/provisioning, mode: "0755" }
+    - { path: grafana/provisioning/dashboards, mode: "0755" }
+    - { path: grafana/provisioning/datasources, mode: "0755" }
+    - { path: loki, mode: "0755" }
+    - { path: prometheus, mode: "0755" }
+    - { path: prometheus/rules, mode: "0755" }
+    - { path: tempo, mode: "0755" }
+
+- name: Copy the observability compose file
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../compose.obs.yaml"
+    dest: "{{ terka_root }}/obs/compose.obs.yaml"
+    owner: deploy
+    group: deploy
+    mode: "0640"
+
+# File by file, not the whole folder: alloy/ must hold exactly one traces file.
+- name: Copy the observability configuration
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../obs/{{ item }}"
+    dest: "{{ terka_root }}/obs/{{ item }}"
+    owner: deploy
+    group: deploy
+    mode: "0644"
+  loop:
+    - alertmanager/alertmanager.yml
+    - alloy/config.alloy
+    - alloy/traces-{{ 'tempo' if obs_tempo_enabled | bool else 'drop' }}.alloy
+    - grafana/grafana.ini
+    - grafana/dashboards/terka.json
+    - grafana/provisioning/dashboards/dashboards.yaml
+    - grafana/provisioning/datasources/datasources.yaml
+    - loki/loki.yaml
+    - prometheus/prometheus.yml
+    - prometheus/rules/terka.yml
+    - tempo/tempo.yaml
+
+- name: Provision the Tempo data source
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../obs/grafana/provisioning/datasources-tempo/tempo.yaml"
+    dest: "{{ terka_root }}/obs/grafana/provisioning/datasources/tempo.yaml"
+    owner: deploy
+    group: deploy
+    mode: "0644"
+  when: obs_tempo_enabled | bool
+
+# Left over when the setting is switched back. Both traces files define the same component, and
+# Alloy refuses to start with the two side by side.
+- name: Remove the files of the other traces setting
+  ansible.builtin.file:
+    path: "{{ terka_root }}/obs/{{ item }}"
+    state: absent
+  loop: >-
+    {{ ['alloy/traces-drop.alloy'] if obs_tempo_enabled | bool
+       else ['alloy/traces-tempo.alloy', 'grafana/provisioning/datasources/tempo.yaml'] }}
+
+- name: Look up the journal group for Alloy
+  ansible.builtin.getent:
+    database: group
+    key: systemd-journal
+
+- name: Write the observability settings
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ terka_root }}/obs/{{ item.dest }}"
+    owner: deploy
+    group: deploy
+    mode: "0600"
+  loop:
+    - { src: env.j2, dest: .env }
+    - { src: alloy.env.j2, dest: alloy.env }
+    - { src: grafana.env.j2, dest: grafana.env }
+  no_log: true
+
+- name: Write the monitor role's password for create-monitor-role.sh
+  ansible.builtin.copy:
+    dest: "{{ terka_root }}/obs/monitor.env"
+    content: "MONITOR_PASSWORD={{ obs_monitor_password }}\n"
+    owner: deploy
+    group: deploy
+    mode: "0600"
+  no_log: true
+
+# Alertmanager runs as nobody (65534) and reads these through the read-only ./secrets mount.
+- name: Create the Alertmanager secrets directory
+  ansible.builtin.file:
+    path: "{{ terka_root }}/obs/secrets"
+    state: directory
+    owner: "65534"
+    group: "65534"
+    mode: "0500"
+
+- name: Write the Discord webhook URLs
+  ansible.builtin.copy:
+    dest: "{{ terka_root }}/obs/secrets/discord-{{ item.key }}"
+    content: "{{ item.value }}"
+    owner: "65534"
+    group: "65534"
+    mode: "0400"
+  loop: "{{ obs_discord_webhooks | dict2items }}"
+  no_log: true

@@ -19,17 +19,32 @@
       - docker-compose-plugin
     update_cache: true
 
-# The disk is 40 GB; unrotated container logs are the usual way such a disk fills up.
-- name: Rotate container logs
+# Alloy reads container logs from the host journal, so it needs neither the Docker socket nor
+# /var/lib/docker. Running containers keep their old driver until they are recreated.
+- name: Send container logs to the journal
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
     content: |
-      {
-        "log-driver": "json-file",
-        "log-opts": { "max-size": "10m", "max-file": "3" }
-      }
+      {"log-driver": "journald"}
     mode: "0644"
   notify: Restart Docker
+
+- name: Create the journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
+# The disk is 40 GB and container logs now land in the journal, so the journal gets the size cap.
+- name: Keep the journal on disk and cap its size
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/terka.conf
+    content: |
+      [Journal]
+      Storage=persistent
+      SystemMaxUse=1G
+    mode: "0644"
+  notify: Restart journald
 
 - name: Start Docker on boot
   ansible.builtin.service:

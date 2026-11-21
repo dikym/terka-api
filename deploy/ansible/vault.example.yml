@@ -15,3 +15,11 @@ vault_google_client_secret: replace-me
 vault_staging_turnstile_secret: replace-me
 # Resend: smtp+starttls://resend:<api key>@smtp.resend.com:587
 vault_smtp_url: smtp+starttls://resend:replace-me@smtp.resend.com:587
+# Observability. Both passwords from `openssl rand -hex 24`.
+vault_monitor_password: replace-me
+vault_grafana_admin_password: replace-me
+vault_discord_webhook_staging: https://discord.com/api/webhooks/replace-me/replace-me
+vault_discord_webhook_production: https://discord.com/api/webhooks/replace-me/replace-me
+# The team name only, without .cloudflareaccess.com.
+vault_obs_access_team: replace-me
+vault_obs_access_aud: replace-me

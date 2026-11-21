@@ -24,18 +24,22 @@
     - { path: staging, mode: "0750" }
     - { path: production, mode: "0750" }
 
-# Outside compose: running containers must join it before Caddy is recreated on it.
-- name: Check for the edge network
-  ansible.builtin.command: docker network inspect terka-edge
-  register: terka_edge_network
+# Outside compose: running containers must join them before Caddy is recreated on them.
+- name: Check for the edge and observability networks
+  ansible.builtin.command: docker network inspect {{ item }}
+  loop: [terka-edge, terka-obs]
+  register: terka_networks
   changed_when: false
   failed_when: false
   # Read-only, so it also runs under --check and the next task has an rc to test.
   check_mode: false
 
-- name: Create the edge network
-  ansible.builtin.command: docker network create terka-edge
-  when: terka_edge_network.rc != 0
+- name: Create the missing networks
+  ansible.builtin.command: docker network create {{ item.item }}
+  loop: "{{ terka_networks.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc != 0
   changed_when: true
 
 - name: Copy the shared infrastructure files
@@ -53,6 +57,7 @@
     - { src: compose.api.yaml, dest: compose.api.yaml, mode: "0640" }
     - { src: compose.web.yaml, dest: compose.web.yaml, mode: "0640" }
     - { src: scripts/create-env-db.sh, dest: bin/create-env-db.sh, mode: "0750" }
+    - { src: scripts/create-monitor-role.sh, dest: bin/create-monitor-role.sh, mode: "0750" }
     - { src: scripts/deploy.sh, dest: bin/deploy.sh, mode: "0750" }
 
 - name: Write the Postgres superuser password
