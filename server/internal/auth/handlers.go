@@ -204,7 +204,7 @@ func (h *Handlers) emailVerify(w http.ResponseWriter, r *http.Request) error {
 		retryAfter(w, err)
 		return clientErr(http.StatusTooManyRequests, "locked", "too many wrong codes, try again later")
 	case err != nil:
-		h.Metrics.SignIn(ctx, "email", "refused", "failed")
+		h.Metrics.SignIn(ctx, "email", "failed", "")
 		return err
 	}
 	h.Metrics.SignIn(ctx, "email", "ok", "")
@@ -243,11 +243,11 @@ func (h *Handlers) googleCallback(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.SignIn(r.Context(), "google", "refused", "other_browser")
 		target += "?error=other_browser"
 	case err != nil:
-		reason := "failed"
 		if errors.Is(err, ErrUnverified) {
-			reason = "unverified"
+			h.Metrics.SignIn(r.Context(), "google", "refused", "unverified")
+		} else {
+			h.Metrics.SignIn(r.Context(), "google", "failed", "")
 		}
-		h.Metrics.SignIn(r.Context(), "google", "refused", reason)
 		h.Log.WarnContext(r.Context(), "google sign-in failed", "error", err)
 		target += "?error=failed"
 	default:

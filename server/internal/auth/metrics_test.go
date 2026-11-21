@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -164,7 +165,7 @@ func TestGoogleSignInsAreCountedByOutcomeAndReason(t *testing.T) {
 	}
 	signins(map[string]string{"method": "google", "outcome": "ok"}, 1)
 	signins(map[string]string{"method": "google", "outcome": "refused", "reason": "unverified"}, 1)
-	signins(map[string]string{"method": "google", "outcome": "refused", "reason": "failed"}, 1)
+	signins(map[string]string{"method": "google", "outcome": "failed"}, 1)
 	signins(map[string]string{"method": "google", "outcome": "refused", "reason": "cancelled"}, 1)
 	signins(map[string]string{"method": "google", "outcome": "refused", "reason": "other_browser"}, 1)
 
@@ -209,4 +210,40 @@ func TestMailboxLockIsCountedOnceAtTheTwentiethWrongCode(t *testing.T) {
 	_, err = e.verify("ani@contoh.id", code, binding)
 	assertIs(t, "21st attempt", err, auth.ErrLocked)
 	wantCount(t, reader, "terka.auth.mailbox.locked", map[string]string{}, 1)
+}
+
+func TestServerErrorOnEmailVerifyIsCountedAsFailedWithoutReason(t *testing.T) {
+	reader, mp := newMetricsProvider()
+	s := newStackWithMetrics(t, false, mp)
+	binding, code := s.requestCode(t, "ani@contoh.id")
+	s.auth.Close()
+	rec := s.do(call{method: "POST", target: "/api/auth/email/verify", body: verifyBody("ani@contoh.id", code), cookies: []*http.Cookie{binding}})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	wantCount(t, reader, "terka.auth.signins", map[string]string{"method": "email", "outcome": "failed"}, 1)
+}
+
+func TestSmokeCheckIsNotCountedAsASignIn(t *testing.T) {
+	reader, mp := newMetricsProvider()
+	st := newStackWithMetrics(t, false, mp)
+	srv := httptest.NewServer(st.handler)
+	defer srv.Close()
+	if err := auth.Smoke(context.Background(), st.sessions, srv.URL, srv.Client()); err != nil {
+		t.Fatal(err)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "terka.auth.signins" {
+				continue
+			}
+			if sum, ok := m.Data.(metricdata.Sum[int64]); ok && len(sum.DataPoints) > 0 {
+				t.Fatalf("smoke check recorded sign-ins: %+v", sum.DataPoints)
+			}
+		}
+	}
 }
