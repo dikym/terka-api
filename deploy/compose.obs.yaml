@@ -1,0 +1,104 @@
+# Metrics, logs and (optionally) traces for every environment on the VPS.
+# Lives at /opt/terka/obs/ next to the contents of deploy/obs/; run with:
+#   docker compose -p terka-obs -f compose.obs.yaml up -d
+# Add --profile tempo to keep traces; alloy/ must then hold traces-tempo.alloy instead of traces-drop.alloy.
+name: terka-obs
+
+services:
+  alloy:
+    image: grafana/alloy:v1.22.0
+    restart: unless-stopped
+    # Loads every *.alloy file in the folder as one configuration.
+    command: ["run", "/etc/alloy", "--storage.path=/var/lib/alloy/data"]
+    # TERKA_MONITOR_DSN for the pg_monitor role; written by Ansible.
+    env_file: alloy.env
+    # No Docker socket, /var/lib/docker or host root: those expose every container's environment,
+    # secrets included. Host memory and CPU come from the container's own /proc, which Linux does not
+    # namespace; disk comes from the data volume, which lives on the host's root filesystem.
+    user: "65534:65534"
+    # 473 is the image's alloy group, which owns /var/lib/alloy and so the data volume.
+    group_add: ["${JOURNAL_GID:?set JOURNAL_GID}", "473"]
+    read_only: true
+    mem_limit: 192m
+    volumes:
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - ./alloy:/etc/alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    networks: [terka, terka-obs]
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.enable-remote-write-receiver
+    read_only: true
+    mem_limit: 192m
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    networks: [terka-obs]
+
+  loki:
+    image: grafana/loki:3.7.10
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    read_only: true
+    mem_limit: 192m
+    volumes:
+      - ./loki:/etc/loki:ro
+      - loki-data:/loki
+    networks: [terka-obs]
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    restart: unless-stopped
+    # GF_SECURITY_ADMIN_PASSWORD and the Cloudflare Access JWT settings; written by Ansible.
+    env_file: grafana.env
+    read_only: true
+    mem_limit: 320m
+    volumes:
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    tmpfs: [/tmp]
+    # Loopback only: the way in over an SSH tunnel when Cloudflare Access is down.
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [terka-edge, terka-obs]
+
+  tempo:
+    image: grafana/tempo:3.1.1
+    restart: unless-stopped
+    profiles: [tempo]
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    read_only: true
+    mem_limit: 320m
+    volumes:
+      - ./tempo:/etc/tempo:ro
+      - tempo-data:/var/tempo
+    networks: [terka-obs]
+
+networks:
+  terka:
+    name: terka
+    external: true
+  # Created by Ansible, like terka-edge, so Caddy can join it.
+  terka-obs:
+    name: terka-obs
+    external: true
+  terka-edge:
+    name: terka-edge
+    external: true
+
+volumes:
+  alloy-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+  tempo-data:

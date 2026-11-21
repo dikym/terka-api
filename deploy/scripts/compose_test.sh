@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks how compose.api.yaml and compose.web.yaml hand settings to each service: the serving API never receives
-# the schema owner's credentials, which bypass row level security.
+# the schema owner's credentials, which bypass row level security. Also checks what compose.obs.yaml exposes.
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -79,6 +79,53 @@ if [ "$web" = '{"env":{"TERKA_ENV":"staging"},"ro":true,"mem":"33554432"}' ]; th
 	pass "the web container gets only its environment name, read-only, in 32 MiB"
 else
 	fail "the web container gets only its environment name, read-only, in 32 MiB" "$web"
+fi
+
+# The observability stack, laid out as Ansible writes /opt/terka/obs.
+mkdir -p "$work/obs"
+cp "$repo/deploy/compose.obs.yaml" "$work/obs/"
+printf 'JOURNAL_GID=999\n' >"$work/obs/.env"
+printf 'TERKA_MONITOR_DSN=postgres://monitor@postgres/terka_staging\n' >"$work/obs/alloy.env"
+printf 'GF_SECURITY_ADMIN_PASSWORD=dummy\n' >"$work/obs/grafana.env"
+obs_compose() { docker compose -f "$work/obs/compose.obs.yaml" "$@"; }
+obs=$(obs_compose --profile tempo config --format json)
+default=$(obs_compose config --services | sort | tr '\n' ' ')
+if [ "$default" = 'alloy grafana loki prometheus ' ]; then
+	pass "tempo starts only when its profile is asked for"
+else
+	fail "tempo starts only when its profile is asked for" "$default"
+fi
+mem=$(jq -c -S '.services | map_values(.mem_limit)' <<<"$obs")
+if [ "$mem" = '{"alloy":"201326592","grafana":"335544320","loki":"201326592","prometheus":"201326592","tempo":"335544320"}' ]; then
+	pass "each observability service has its memory limit"
+else
+	fail "each observability service has its memory limit" "$mem"
+fi
+ports=$(jq -c '[.services | to_entries[] | select(.value.ports) | {(.key): [.value.ports[] | "\(.host_ip):\(.published):\(.target)"]}] | add' <<<"$obs")
+if [ "$ports" = '{"grafana":["127.0.0.1:3000:3000"]}' ]; then
+	pass "the only host port is grafana on loopback"
+else
+	fail "the only host port is grafana on loopback" "$ports"
+fi
+nets=$(jq -c -S '.services | map_values(.networks | keys)' <<<"$obs")
+if [ "$nets" = '{"alloy":["terka","terka-obs"],"grafana":["terka-edge","terka-obs"],"loki":["terka-obs"],"prometheus":["terka-obs"],"tempo":["terka-obs"]}' ]; then
+	pass "only alloy reaches the app network and only grafana the edge"
+else
+	fail "only alloy reaches the app network and only grafana the edge" "$nets"
+fi
+# The Docker socket, /var/lib/docker and the host root hold every container's secrets.
+alloy=$(jq -c --arg w "$work/obs/" '.services.alloy
+	| {user, group_add, binds: [.volumes[] | select(.type == "bind") | "\(.source | ltrimstr($w)):\(.read_only // false)"]}' <<<"$obs")
+if [ "$alloy" = '{"user":"65534:65534","group_add":["999","473"],"binds":["/var/log/journal:true","/run/log/journal:true","/etc/machine-id:true","alloy:true"]}' ]; then
+	pass "alloy runs unprivileged and reads only the journal and its config"
+else
+	fail "alloy runs unprivileged and reads only the journal and its config" "$alloy"
+fi
+foreign=$(jq -r '.services[].environment // {} | keys[]' <<<"$obs" | grep -v '^GF_' | grep -vx TERKA_MONITOR_DSN | sort -u | tr '\n' ' ')
+if [ -z "$foreign" ] && jq -e '.services.alloy.environment.TERKA_MONITOR_DSN' <<<"$obs" >/dev/null; then
+	pass "the observability stack reads its own settings and none of the app's"
+else
+	fail "the observability stack reads its own settings and none of the app's" "$foreign"
 fi
 
 if [ "$failures" -gt 0 ]; then

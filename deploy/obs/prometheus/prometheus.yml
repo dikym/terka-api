@@ -1,0 +1,8 @@
+# Everything arrives by remote write from Alloy; Prometheus scrapes nothing itself.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]

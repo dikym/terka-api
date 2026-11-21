@@ -1,0 +1,13 @@
+# Grafana reads only provisioning/datasources/; this file is copied there when Tempo runs.
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
