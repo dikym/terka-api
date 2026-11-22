@@ -40,9 +40,15 @@ Menurut aturan keputusan rencana (jumlah kelima layanan ≤ 700 MB, tanpa pembun
 ## Pengukuran di VPS
 
 Belum dilakukan. Sekarang memakai **tumpukan sungguhan** (`deploy/compose.obs.yaml`, dipasang menurut
-bagian "Observability" di `docs/runbooks/deploy.md`), bukan `spikes/obs-memory/`. Batas memori sudah
-ada di compose: Grafana 320 MiB (`GOMEMLIMIT` 272 MiB), Alloy, Prometheus, dan Loki 192 MiB, Alertmanager
-64 MiB, Tempo 320 MiB. Grafana sudah memakai batas 320 MiB karena pengukuran lokal di atas.
+bagian "Observability" di `docs/runbooks/deploy.md`), bukan `spikes/obs-memory/`. Batas memori di compose:
+Grafana 384 MiB (`GOMEMLIMIT` 326 MiB), Alloy 256 MiB (`GOMEMLIMIT` 218 MiB), Prometheus dan Loki 192 MiB,
+Alertmanager 64 MiB, Tempo 320 MiB.
+
+Start pertama di VPS (2026-11-22) dengan batas lama: Grafana 320 MiB tidak pernah membuka port 3000
+(85–89% batas, membaca disk 9 GB dalam beberapa menit), dan Alloy 192 MiB di 87% membaca disk 231 GB.
+Keduanya thrashing: kernel membuang halaman binary dari cache lalu membacanya ulang, sehingga
+`/proc/pressure/io` `full avg10` sekitar 90 dan seluruh host menunggu disk. Grafana sehat di 384 MiB
+(sekitar 84–108 MiB terpakai setelah start); Alloy dinaikkan ke 256 MiB.
 
 Pengukuran awal di lokal dengan tumpukan sungguhan (tanpa Tempo): Grafana diam sekitar 309 dari 320 MiB,
 dengan bagian anonim sekitar 255 MiB. Artinya batas Grafana tipis, dan hasil di VPS menentukan apakah

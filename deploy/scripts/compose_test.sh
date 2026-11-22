@@ -96,7 +96,7 @@ else
 	fail "tempo starts only when its profile is asked for" "$default"
 fi
 mem=$(jq -c -S '.services | map_values([.mem_limit, .environment.GOMEMLIMIT])' <<<"$obs")
-if [ "$mem" = '{"alertmanager":["67108864","54MiB"],"alloy":["201326592","163MiB"],"grafana":["335544320","272MiB"],"loki":["201326592","163MiB"],"prometheus":["201326592","163MiB"],"tempo":["335544320","272MiB"]}' ]; then
+if [ "$mem" = '{"alertmanager":["67108864","54MiB"],"alloy":["268435456","218MiB"],"grafana":["402653184","326MiB"],"loki":["201326592","163MiB"],"prometheus":["201326592","163MiB"],"tempo":["335544320","272MiB"]}' ]; then
 	pass "each observability service has its memory limit with the Go heap capped below it"
 else
 	fail "each observability service has its memory limit with the Go heap capped below it" "$mem"

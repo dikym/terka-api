@@ -19,10 +19,10 @@ services:
     # 473 is the image's alloy group, which owns /var/lib/alloy and so the data volume.
     group_add: ["${JOURNAL_GID:?set JOURNAL_GID}", "473"]
     read_only: true
-    mem_limit: 192m
+    mem_limit: 256m
     # About 85% of mem_limit on every Go service, so the runtime collects harder before the kernel kills it.
     environment:
-      GOMEMLIMIT: 163MiB
+      GOMEMLIMIT: 218MiB
     volumes:
       - /var/log/journal:/var/log/journal:ro
       - /run/log/journal:/run/log/journal:ro
@@ -88,9 +88,9 @@ services:
     # GF_SECURITY_ADMIN_PASSWORD and the Cloudflare Access JWT settings; written by Ansible.
     env_file: grafana.env
     read_only: true
-    mem_limit: 320m
+    mem_limit: 384m
     environment:
-      GOMEMLIMIT: 272MiB
+      GOMEMLIMIT: 326MiB
     volumes:
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
