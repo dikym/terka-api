@@ -146,7 +146,15 @@ Lapisan pertama sebelum server: **[Cloudflare]** Security, WAF, Rate limiting ru
 
 Server tetap membatasi sendiri (10 permintaan kode dan 30 verifikasi per IP per jam, 5 kode per alamat per jam, 80 email per jam dan 90 per hari seluruh layanan); aturan ini hanya meredam banjir sebelum sampai ke VPS.
 
-Pemeriksaan (**[Laptop]**): kirim 6 `POST` cepat ke `/api/auth/email/request` dari satu mesin; yang keenam dijawab Cloudflare dengan 429 sebelum mencapai server.
+Pemeriksaan (**[Laptop]**): kirim 6 `POST` cepat ke `/api/auth/email/request` lewat satu koneksi; yang keenam dijawab Cloudflare dengan 429 sebelum mencapai server. Isi `{}` cukup: server menolaknya sebelum batas per IP dihitung, dan tidak ada email terkirim.
+
+```sh
+u=https://staging.terka.my.id/api/auth/email/request; args=()
+for i in $(seq 7); do args+=(-X POST -d '{}' -o /dev/null -w '%{http_code}\n' "$u" --next); done
+curl -s "${args[@]}" https://staging.terka.my.id/cdn-cgi/trace -o /dev/null   # 400 x5, lalu 429
+```
+
+Satu `curl` per request tidak cukup di jaringan yang mengganti IP keluar per koneksi (CGNAT ISP): setiap request tercatat dari IP lain dan hitungannya tidak pernah mencapai 5. Cek dengan `curl -s https://staging.terka.my.id/cdn-cgi/trace | grep ^ip=` beberapa kali.
 
 ## 10. Grafana dan Access
 
