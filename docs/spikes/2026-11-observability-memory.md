@@ -74,6 +74,16 @@ lunak. Keputusan: Grafana dinaikkan ke 512 MiB (`GOMEMLIMIT` 435 MiB). Perkiraan
 jalan: sekitar 1,1–1,15 GB terpakai, `available` sekitar 800–900 MB. Tempo tetap mati sampai ada
 pengukuran dengan produksi atau VPS 4 GB.
 
+Setelah Grafana dinaikkan ke 512 MiB (2026-11-22 12.42 WITA, beberapa menit setelah restart Grafana dan
+Loki):
+
+| Grafana | Alloy | Loki | Prometheus | Alertmanager | API staging | Postgres |
+| --- | --- | --- | --- | --- | --- | --- |
+| 220 / 512 MiB (43%) | 176 / 256 MiB (69%) | 62 / 192 MiB | 85 / 192 MiB | 28 / 64 MiB | 9 / 128 MiB | 31 / 512 MiB |
+
+Grafana jauh di bawah batasnya. Alloy naik dari 141 ke 176 MiB sejak pengukuran sebelumnya; dipantau
+lewat panel memori host dan alert `MemoryLow`, dan dinaikkan bila mendekati 90% batasnya.
+
 ### Aturan keputusan
 
 Kriteria selesai tahap 2 (spec bagian 9): setelah dua jam dengan staging dan tumpukan hidup, tidak ada
