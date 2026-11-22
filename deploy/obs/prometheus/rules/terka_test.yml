@@ -28,7 +28,8 @@ tests:
               env: staging
               datname: terka_staging
             exp_annotations:
-              summary: "staging database is 150MiB, over the 150 MiB limit. https://grafana.terka.my.id"
+              title: "Database over 150 MiB"
+              summary: "Database size is 150MiB."
 
   - name: first locked mailbox fires although the series starts at 1, then goes quiet
     interval: 1m
@@ -45,7 +46,8 @@ tests:
               severity: warning
               env: staging
             exp_annotations:
-              summary: "staging: 2 mailbox lock(s) after repeated sign-in codes in 15 minutes. https://grafana.terka.my.id"
+              title: "Mailbox locked"
+              summary: "2 mailbox(es) locked after repeated wrong codes in 15 minutes."
       - eval_time: 25m
         alertname: MailboxLocked
         exp_alerts: []
@@ -68,7 +70,8 @@ tests:
               severity: warning
               env: staging
             exp_annotations:
-              summary: "staging: 1 mailbox lock(s) after repeated sign-in codes in 15 minutes. https://grafana.terka.my.id"
+              title: "Mailbox locked"
+              summary: "1 mailbox(es) locked after repeated wrong codes in 15 minutes."
       - eval_time: 55m
         alertname: MailboxLocked
         exp_alerts: []
@@ -90,7 +93,8 @@ tests:
               severity: critical
               env: staging
             exp_annotations:
-              summary: "staging: 2 sign-in email(s) failed to send in 15 minutes. https://grafana.terka.my.id"
+              title: "Sign-in emails failing"
+              summary: "2 sign-in email(s) failed to send in 15 minutes."
       - eval_time: 25m
         alertname: EmailSendFailed
         exp_alerts: []
@@ -111,7 +115,8 @@ tests:
               env: staging
               kind: refused
             exp_annotations:
-              summary: "staging: the email service refused 1 send(s) for its daily limit in 15 minutes. https://grafana.terka.my.id"
+              title: "Email limit reached"
+              summary: "The email service refused 1 send(s) for its daily limit in 15 minutes."
       - eval_time: 25m
         alertname: EmailServiceLimit
         exp_alerts: []
@@ -133,7 +138,8 @@ tests:
               env: staging
               job: terka-api
             exp_annotations:
-              summary: "staging API has reported nothing for 5 minutes. https://grafana.terka.my.id"
+              title: "API is not reporting"
+              summary: "No metrics from the API for 5 minutes."
 
   - name: 72 emails in a day across environments fires
     interval: 1h
@@ -151,7 +157,8 @@ tests:
               env: host
               kind: volume
             exp_annotations:
-              summary: "Email service: 72 sign-in emails sent in 24 hours across all environments, near its daily limit. https://grafana.terka.my.id"
+              title: "Email quota nearly used"
+              summary: "72 sign-in emails sent in 24 hours across all environments."
 
   - name: each environment alone under 72 emails stays quiet
     interval: 1h
@@ -193,7 +200,8 @@ tests:
               env: staging
               kind: count
             exp_annotations:
-              summary: "staging API: 10 server errors in 10 minutes. https://grafana.terka.my.id"
+              title: "API server errors"
+              summary: "10 server errors in 10 minutes."
 
   - name: a few errors among little traffic fire on the ratio
     interval: 1m
@@ -211,7 +219,8 @@ tests:
               env: staging
               kind: ratio
             exp_annotations:
-              summary: "staging API: 9.091% of requests failed with a server error in 10 minutes. https://grafana.terka.my.id"
+              title: "API server errors"
+              summary: "9.091% of requests failed in 10 minutes."
 
   - name: health checks do not dilute the error ratio
     interval: 1m
@@ -231,7 +240,8 @@ tests:
               env: staging
               kind: ratio
             exp_annotations:
-              summary: "staging API: 9.091% of requests failed with a server error in 10 minutes. https://grafana.terka.my.id"
+              title: "API server errors"
+              summary: "9.091% of requests failed in 10 minutes."
 
   - name: a slow user route fires despite many fast health checks
     interval: 1m
@@ -260,7 +270,8 @@ tests:
               severity: warning
               env: staging
             exp_annotations:
-              summary: "staging API: 95th percentile response time is 1.95 s. https://grafana.terka.my.id"
+              title: "API is slow"
+              summary: "95th percentile response time is 1.95 s."
 
   - name: one error among little traffic and no traffic at all stay quiet
     interval: 1m
@@ -294,7 +305,8 @@ tests:
               env: host
               instance: a
             exp_annotations:
-              summary: "VPS: Postgres is not answering the metrics exporter (pg_up is 0). https://grafana.terka.my.id"
+              title: "Postgres is down"
+              summary: "Postgres is not answering the metrics exporter."
 
   - name: an oom kill fires, a steady count does not
     interval: 1m
@@ -313,7 +325,8 @@ tests:
               env: host
               instance: a
             exp_annotations:
-              summary: "VPS: the kernel killed 1 process(es) for lack of memory in 10 minutes. https://grafana.terka.my.id"
+              title: "Process killed for memory"
+              summary: "The kernel killed 1 process(es) for lack of memory in 10 minutes."
       - eval_time: 25m
         alertname: OomKill
         exp_alerts: []

@@ -8,7 +8,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.env }} API has reported nothing for 5 minutes. https://grafana.terka.my.id'
+          title: API is not reporting
+          summary: 'No metrics from the API for 5 minutes.'
 
       # Two rules with one name, a count and a ratio, so each shows its own value.
       - alert: ApiErrors
@@ -18,7 +19,8 @@ groups:
           severity: critical
           kind: count
         annotations:
-          summary: '{{ $labels.env }} API: {{ $value | printf "%.0f" }} server errors in 10 minutes. https://grafana.terka.my.id'
+          title: API server errors
+          summary: '{{ $value | printf "%.0f" }} server errors in 10 minutes.'
 
       # The container health check calls /readyz every 5 seconds, which would swamp the user traffic.
       - alert: ApiErrors
@@ -31,7 +33,8 @@ groups:
           severity: critical
           kind: ratio
         annotations:
-          summary: '{{ $labels.env }} API: {{ $value | humanizePercentage }} of requests failed with a server error in 10 minutes. https://grafana.terka.my.id'
+          title: API server errors
+          summary: '{{ $value | humanizePercentage }} of requests failed in 10 minutes.'
 
       - alert: ApiSlow
         expr: |
@@ -40,7 +43,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.env }} API: 95th percentile response time is {{ $value | printf "%.2f" }} s. https://grafana.terka.my.id'
+          title: API is slow
+          summary: '95th percentile response time is {{ $value | printf "%.2f" }} s.'
 
   # The API creates a counter series on its first event, so the series appears at 1 and increase()
   # sees no growth. "unless ... offset" catches a series that was not there 15 minutes ago.
@@ -56,7 +60,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.env }}: {{ $value | printf "%.0f" }} sign-in email(s) failed to send in 15 minutes. https://grafana.terka.my.id'
+          title: Sign-in emails failing
+          summary: '{{ $value | printf "%.0f" }} sign-in email(s) failed to send in 15 minutes.'
 
       - alert: MailboxLocked
         expr: |
@@ -68,7 +73,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.env }}: {{ $value | printf "%.0f" }} mailbox lock(s) after repeated sign-in codes in 15 minutes. https://grafana.terka.my.id'
+          title: Mailbox locked
+          summary: '{{ $value | printf "%.0f" }} mailbox(es) locked after repeated wrong codes in 15 minutes.'
 
       - alert: EmailServiceLimit
         expr: |
@@ -81,7 +87,8 @@ groups:
           severity: warning
           kind: refused
         annotations:
-          summary: '{{ $labels.env }}: the email service refused {{ $value | printf "%.0f" }} send(s) for its daily limit in 15 minutes. https://grafana.terka.my.id'
+          title: Email limit reached
+          summary: 'The email service refused {{ $value | printf "%.0f" }} send(s) for its daily limit in 15 minutes.'
 
       # Staging and production send through one Resend account, so its daily limit counts them together.
       - alert: EmailServiceLimit
@@ -91,7 +98,8 @@ groups:
           env: host
           kind: volume
         annotations:
-          summary: 'Email service: {{ $value | printf "%.0f" }} sign-in emails sent in 24 hours across all environments, near its daily limit. https://grafana.terka.my.id'
+          title: Email quota nearly used
+          summary: '{{ $value | printf "%.0f" }} sign-in emails sent in 24 hours across all environments.'
 
   - name: terka-host
     rules:
@@ -104,7 +112,8 @@ groups:
           severity: critical
           env: host
         annotations:
-          summary: 'VPS disk: {{ $value | humanizePercentage }} free. https://grafana.terka.my.id'
+          title: Disk almost full
+          summary: '{{ $value | humanizePercentage }} disk space free.'
 
       - alert: MemoryLow
         expr: node_memory_MemAvailable_bytes < 200e6
@@ -113,7 +122,8 @@ groups:
           severity: warning
           env: host
         annotations:
-          summary: 'VPS memory: {{ $value | humanize1024 }}B available. https://grafana.terka.my.id'
+          title: Memory low
+          summary: '{{ $value | humanize1024 }}B memory available.'
 
       - alert: OomKill
         expr: increase(node_vmstat_oom_kill[10m]) > 0
@@ -121,7 +131,8 @@ groups:
           severity: critical
           env: host
         annotations:
-          summary: 'VPS: the kernel killed {{ $value | printf "%.0f" }} process(es) for lack of memory in 10 minutes. https://grafana.terka.my.id'
+          title: Process killed for memory
+          summary: 'The kernel killed {{ $value | printf "%.0f" }} process(es) for lack of memory in 10 minutes.'
 
   - name: terka-database
     rules:
@@ -132,7 +143,8 @@ groups:
           severity: critical
           env: host
         annotations:
-          summary: 'VPS: Postgres is not answering the metrics exporter (pg_up is {{ $value }}). https://grafana.terka.my.id'
+          title: Postgres is down
+          summary: 'Postgres is not answering the metrics exporter.'
 
       # env comes from the database name: terka_staging gives staging.
       - alert: DatabaseLarge
@@ -141,7 +153,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.env }} database is {{ $value | humanize1024 }}B, over the 150 MiB limit. https://grafana.terka.my.id'
+          title: Database over 150 MiB
+          summary: 'Database size is {{ $value | humanize1024 }}B.'
 
   - name: terka-stack
     rules:
@@ -151,7 +164,8 @@ groups:
           severity: critical
           env: host
         annotations:
-          summary: 'VPS: the collector has reported nothing for 5 minutes. https://grafana.terka.my.id'
+          title: Collector is not reporting
+          summary: 'No data from Alloy for 5 minutes.'
 
       - alert: StackWriteFailing
         expr: |
@@ -163,4 +177,5 @@ groups:
           severity: critical
           env: host
         annotations:
-          summary: 'VPS: the collector is failing to write metrics or logs ({{ $value | printf "%.3f" }} per second). https://grafana.terka.my.id'
+          title: Collector cannot write
+          summary: 'Alloy is failing to write metrics or logs ({{ $value | printf "%.3f" }} per second).'
