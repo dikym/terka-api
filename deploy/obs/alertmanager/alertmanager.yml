@@ -7,17 +7,27 @@ route:
       receiver: discord-production
 
 # The webhook files are written by Ansible; a webhook URL is a credential and never lives in the repo.
-# The message is set because Discord's default one lists labels only, and the summary carries the value.
+# Both channels share one message shape: a plain heading, then per alert its summary, when it started
+# and the dashboard, or how long it lasted once resolved. Times are in the owner's zone, WIB.
 receivers:
   - name: discord-staging
     discord_configs:
       - webhook_url_file: /etc/alertmanager/secrets/discord-staging
-        message: |-
-          {{ range .Alerts }}{{ .Annotations.summary }}
-          {{ end }}
+        title: &title >-
+          {{ if eq .Status "resolved" }}🟢 Resolved · {{ else if eq .CommonLabels.severity "critical" }}🔴 {{ else }}🟡 {{ end -}}
+          {{ if eq .CommonLabels.env "host" }}VPS{{ else }}{{ title .CommonLabels.env }}{{ end }} · {{ (index .Alerts 0).Annotations.title }}
+        message: &message |-
+          {{ range .Alerts.Firing -}}
+          {{ .Annotations.summary }}
+          Since {{ .StartsAt | tz "Asia/Jakarta" | date "15:04" }} WIB · https://grafana.terka.my.id/d/terka/terka{{ if ne .Labels.env "host" }}?var-env={{ .Labels.env }}{{ end }}
+          {{ end -}}
+          {{ range .Alerts.Resolved -}}
+          {{ if gt (len $.Alerts) 1 }}{{ .Annotations.title }}: {{ end -}}
+          {{ $lasted := .EndsAt.Sub .StartsAt -}}
+          Lasted {{ if lt $lasted.Minutes 1.0 }}under a minute{{ else }}{{ $lasted.Round 60000000000 | printf "%v" | reReplaceAll "m0s$" "m" | reReplaceAll "h0m$" "h" }}{{ end }}.
+          {{ end -}}
   - name: discord-production
     discord_configs:
       - webhook_url_file: /etc/alertmanager/secrets/discord-production
-        message: |-
-          {{ range .Alerts }}{{ .Annotations.summary }}
-          {{ end }}
+        title: *title
+        message: *message

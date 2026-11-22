@@ -10,6 +10,7 @@ deploy/ansible/inventory.ini
 .idea/
 /.edge-test.*/
 /.grafana-access-test.*/
+/.alert-test.*/
 
 # planning docs
 docs/superpowers/
