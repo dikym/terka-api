@@ -577,7 +577,7 @@ Enam kunci baru di `group_vars/all/vault.yml` (total 17). Bentuknya ada di `vaul
 | `vault_grafana_admin_password` | `openssl rand -hex 24`. Admin lokal Grafana (jalan darurat, langkah 8) |
 | `vault_discord_webhook_staging` | **[Laptop]** (Discord) Server Settings, Integrations, Webhooks, New Webhook di channel staging, **Copy Webhook URL** |
 | `vault_discord_webhook_production` | Sama, untuk channel production |
-| `vault_obs_access_team` | Nama tim Zero Trust saja, tanpa `.cloudflareaccess.com` (`cloudflare.md` bagian 10) |
+| `vault_obs_access_team` | Awalan Team domain Zero Trust (bukan Team name), tanpa `.cloudflareaccess.com` (`cloudflare.md` bagian 10) |
 | `vault_obs_access_aud` | AUD tag aplikasi Access (`cloudflare.md` bagian 10) |
 
 URL webhook adalah kredensial: jangan ditempel ke chat atau repo. Playbook menuliskannya ke `/opt/terka/obs/secrets/discord-staging` dan `discord-production` (mode `0400`), dan `GF_AUTH_JWT_EXPECT_CLAIMS={"aud":"<AUD>"}` dirender Ansible ke `/opt/terka/obs/grafana.env`, jadi tidak ada yang perlu ditulis tangan.

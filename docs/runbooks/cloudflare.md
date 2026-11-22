@@ -156,21 +156,23 @@ Grafana ada di `grafana.terka.my.id`, di belakang Cloudflare Access (login email
 
 ### Tim Zero Trust
 
-**[Cloudflare]** Zero Trust (<https://one.dash.cloudflare.com>). Jika belum ada tim, buat dengan nama bebas (misalnya `terka`) dan pilih paket **Free**. Nama tim membentuk `<tim>.cloudflareaccess.com`. Catat nama tim: ini `vault_obs_access_team` (nama saja, tanpa `.cloudflareaccess.com`).
+**[Cloudflare]** Zero Trust (<https://one.dash.cloudflare.com>). Jika belum ada tim, buat tim dan pilih paket **Zero Trust Free** ($0, sampai 50 pengguna). Cloudflare meminta informasi pembayaran sebelum paket Free aktif, walaupun tidak ada tagihan. Isi, lalu periksa di Zero Trust, Settings, Cloudflare One plan bahwa *Plan type* **Zero Trust Free** dan *Price* **$0 / month**.
+
+Nama tim berlaku global di semua akun Cloudflare dan membentuk `<tim>.cloudflareaccess.com`. `terka` sudah dipakai orang lain, jadi pilih nama lain yang tidak terikat ke satu aplikasi, misalnya `terka-ops`, karena satu tim bisa melindungi aplikasi lain nanti. Catat awalan **Team domain** di Zero Trust, Overview, Account details (misalnya `terkamyid` dari `terkamyid.cloudflareaccess.com`): ini `vault_obs_access_team`. Jangan pakai **Team name**; itu hanya nama tampilan dan bisa berbeda dari domainnya. Mengganti nama tim nanti mengubah alamat kunci JWT; Grafana menolak login sampai vault diperbarui dan playbook dijalankan ulang.
 
 ### Metode login
 
-**[Cloudflare]** Zero Trust, Settings, Authentication, Login methods: pastikan **One-time PIN** aktif (aktif bawaan).
+**[Cloudflare]** Zero Trust, Integrations, Identity providers. Jika **One-time PIN** belum ada di daftar, klik **Add new**, pilih **One-time PIN**, lalu **Save** (tidak ada isian). One-time PIN tidak ada di halaman Settings.
 
 ### Aplikasi Access
 
-**[Cloudflare]** Zero Trust, Access controls, Applications, **Add an application**, **Self-hosted**:
+**[Cloudflare]** Zero Trust, Access controls, Applications, **Add an application**, tab **Self-hosted and private**, pilihan **Public DNS** (Grafana adalah hostname publik yang di-proxy, bukan tujuan privat lewat Tunnel), **Continue with Self-hosted and private**:
 
 - *Application name* `grafana`. *Session duration* sesuai selera (misalnya 24 jam).
 - *Public hostname*: subdomain `grafana`, domain `terka.my.id`, tanpa path.
 - Policy: nama `owner`, *Action* **Allow**, *Include* **Emails** berisi email pemilik saja.
 - *Login methods*: hanya **One-time PIN**.
-- Simpan. Buka aplikasi yang baru dibuat, tab **Overview**, dan salin **Application Audience (AUD) Tag**: ini `vault_obs_access_aud`.
+- **Create**. Lalu Access controls, Applications, klik aplikasi `grafana`, buka tab **Additional settings** (kanan atas, sebelah *Application details*), dan salin **Application Audience (AUD) Tag**: ini `vault_obs_access_aud`.
 
 Masukkan kedua nilai ke vault (bagian "Observability" langkah 1 di `deploy.md`). Ansible merender `GF_AUTH_JWT_EXPECT_CLAIMS={"aud":"<AUD>"}` dan alamat kunci JWT dari nama tim.
 

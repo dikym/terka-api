@@ -20,6 +20,6 @@ vault_monitor_password: replace-me
 vault_grafana_admin_password: replace-me
 vault_discord_webhook_staging: https://discord.com/api/webhooks/replace-me/replace-me
 vault_discord_webhook_production: https://discord.com/api/webhooks/replace-me/replace-me
-# The team name only, without .cloudflareaccess.com.
+# The Team domain prefix (not the Team name), without .cloudflareaccess.com.
 vault_obs_access_team: replace-me
 vault_obs_access_aud: replace-me
