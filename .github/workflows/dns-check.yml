@@ -20,12 +20,15 @@ jobs:
       - name: Check the email DNS records
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_PRODUCTION }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           code=0
           problems=$(bash deploy/scripts/dns-check.sh) || code=$?
           if [ "$code" -ne 0 ]; then
             printf '%s\n' "$problems"
-            jq -n --arg content "$(printf 'Email DNS check failed:\n%s' "$problems")" '{content: $content}' |
+            # Same shape as the Alertmanager messages: a plain heading, what is wrong, and where to look.
+            jq -n --arg text "$problems"$'\n'"Checked $(TZ=Asia/Jakarta date +%H:%M) WIB · $RUN_URL" \
+              '{embeds: [{title: "Critical · Production · Email DNS records broken", description: $text, color: 10038562}]}' |
               curl -fsS -H 'content-type: application/json' -d @- "$WEBHOOK"
           fi
           exit "$code"

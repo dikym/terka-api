@@ -700,7 +700,7 @@ Dua workflow terjadwal di repo `terka-api`: `healthz` (setiap 5 menit, memeriksa
 | `DISCORD_WEBHOOK_STAGING` | URL webhook channel staging (sama dengan nilai vault); dipakai `healthz` |
 | `DISCORD_WEBHOOK_PRODUCTION` | URL webhook channel production; dipakai `dns-check` |
 
-Periksa: tab Actions, workflow `healthz`, **Run workflow** (cabang `main`); harapan hijau tanpa pesan. Uji pesan: hentikan container API staging sebentar (`docker stop <container api>` di VPS, lalu `docker start`) dan tunggu jadwal berikutnya: pesan "tidak menjawab", lalu "pulih" setelah dinyalakan lagi.
+Periksa: tab Actions, workflow `healthz`, **Run workflow** (cabang `main`); harapan hijau tanpa pesan. Uji pesan: hentikan container API staging sebentar (`docker stop <container api>` di VPS, lalu `docker start`) dan tunggu jadwal berikutnya: pesan "Critical · Staging · Health check failing", lalu "Resolved · Staging · Health check failing" setelah dinyalakan lagi.
 
 Batasan jadwal GitHub:
 

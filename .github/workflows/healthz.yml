@@ -42,6 +42,18 @@ jobs:
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_STAGING }}
           STATE: ${{ steps.check.outputs.state }}
+        # Same shape as the Alertmanager messages: a plain heading, what happened, when, and where to look.
         run: |
-          if [ "$STATE" = down ]; then text="staging.terka.my.id/healthz tidak menjawab"; else text="staging.terka.my.id/healthz pulih"; fi
-          jq -n --arg content "$text" '{content: $content}' | curl -fsS -H 'content-type: application/json' -d @- "$WEBHOOK"
+          link="https://grafana.terka.my.id/d/terka/terka?var-env=staging"
+          if [ "$STATE" = down ]; then
+            title="Critical · Staging · Health check failing"
+            text="https://staging.terka.my.id/healthz did not answer from outside the VPS."$'\n'"Since $(TZ=Asia/Jakarta date +%H:%M) WIB · $link"
+            color=10038562
+          else
+            title="Resolved · Staging · Health check failing"
+            text="https://staging.terka.my.id/healthz answers again."
+            color=3066993
+          fi
+          jq -n --arg title "$title" --arg text "$text" --argjson color "$color" \
+            '{embeds: [{title: $title, description: $text, color: $color}]}' |
+            curl -fsS -H 'content-type: application/json' -d @- "$WEBHOOK"
