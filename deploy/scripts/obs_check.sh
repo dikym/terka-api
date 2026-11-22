@@ -12,16 +12,18 @@ alloy=$(image grafana/alloy)
 loki=$(image grafana/loki)
 
 # The Discord template builds its heading from title and its body from summary plus its own link.
+# Any link in the rules is refused, which also catches one on the next line of a folded summary.
 awk '
 	/^ *- alert:/ { if (name) check(); name = $3; title = ""; summary = "" }
 	/^ *title:/ { title = $0 }
 	/^ *summary:/ { summary = $0 }
+	/^[^#]*https?:\/\// { print (name ? name : "rules") ": carries a link; the template adds it"; bad = 1 }
 	END { if (name) check(); exit bad }
 	function check() {
 		if (title == "" || summary == "") { print name ": needs a title and a summary"; bad = 1 }
 		sub(/^ *title: */, "", title)
-		if (length(title) > 62) { print name ": title is over 60 characters"; bad = 1 }
-		if (summary ~ /https:/) { print name ": the summary carries a link; the template adds it"; bad = 1 }
+		gsub(/^["\047]|["\047]$/, "", title)
+		if (length(title) > 60) { print name ": title is over 60 characters"; bad = 1 }
 	}' "$obs/prometheus/rules/terka.yml"
 
 docker run --rm --entrypoint promtool -v "$obs/prometheus:/etc/prometheus:ro" "$prometheus" \

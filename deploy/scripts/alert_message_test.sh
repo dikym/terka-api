@@ -69,32 +69,51 @@ wait_for() {
 }
 
 # Alertmanager only reports a resolution for an alert it has reported firing, so each one that should
-# resolve fires first and is sent again with an end time.
+# resolve fires first and is sent again with an end time. Every time is fixed before any waiting, so a
+# slow runner cannot stretch the durations being checked.
 memory_start=$(at -13200)
+hours_start=$(at -7200)
 blip_start=$(at -20)
 mixed_start=$(at -600)
+now=$(at 0)
 api_epoch=$(($(date +%s) - 60))
 api_wib=$(TZ=Asia/Jakarta stamp "$api_epoch" +%H:%M)
 send ApiDown env=staging severity=critical --annotation=title="API is not reporting" \
 	--annotation=summary="No metrics from the API for 5 minutes." --start="$(TZ=UTC stamp "$api_epoch" +%Y-%m-%dT%H:%M:%SZ)"
 send DiskFull env=host severity=warning --annotation=title="Disk almost full" \
 	--annotation=summary="15% disk space free." --start="$(at -60)"
+send ProdDown env=production severity=critical --annotation=title="Production check" \
+	--annotation=summary="Production is failing." --start="$(at -60)"
+send Envless severity=warning --annotation=title="Envless check" \
+	--annotation=summary="A rule without an environment." --start="$(at -60)"
+send Severity env=staging severity=warning kind=a --annotation=title="Severity mix" \
+	--annotation=summary="The warning half." --start="$(at -60)"
+send Severity env=staging severity=critical kind=b --annotation=title="Severity mix" \
+	--annotation=summary="The critical half." --start="$(at -60)"
 memory() { send MemoryLow env=staging severity=warning --annotation=title="Memory low" \
 	--annotation=summary="100MiB memory available." --start="$memory_start" "$@"; }
+hours() { send Hours env=staging severity=warning --annotation=title="Two hours" \
+	--annotation=summary="Lasting a round two hours." --start="$hours_start" "$@"; }
 blip() { send Blip env=staging severity=warning --annotation=title="Short blip" \
 	--annotation=summary="Something happened briefly." --start="$blip_start" "$@"; }
-mixed() { send Mixed env=staging severity=critical kind="$1" --annotation=title="Mixed group" \
-	--annotation=summary="$2" --start="$mixed_start" "${@:3}"; }
+# The resolved half sorts first (kind=a), so the heading must still come from the firing half.
+mixed() { send Mixed env=staging severity=critical kind="$1" --annotation=title="$2" \
+	--annotation=summary="$3" --start="$mixed_start" "${@:4}"; }
 memory
+hours
 blip
-mixed a "Still failing."
-mixed b "Over already."
-wait_for 5
-now=$(at 0)
+mixed a "Mixed group, old half" "Over already."
+mixed b "Mixed group" "Still failing."
+wait_for 10
 memory --end="$now"
+hours --end="$now"
 blip --end="$now"
-mixed b "Over already." --end="$now"
-wait_for 8
+mixed a "Mixed group, old half" "Over already." --end="$now"
+# Wait for the four resolutions themselves rather than a message count, which extra flushes can reach early.
+for _ in $(seq 30); do
+	[ "$(docker exec "$catcher" sh -c 'grep -c Lasted /tmp/out' 2>/dev/null || echo 0)" -ge 4 ] && break
+	sleep 1
+done
 
 docker exec "$catcher" cat /tmp/out >"$work/out" 2>/dev/null
 # The latest message for a heading is the one that matters: a resolution follows its firing.
@@ -132,9 +151,26 @@ check "a resolved alert leaves out the firing text" "$b" lacks "$b" "memory avai
 b=$(body "Short blip")
 check "a blip under a minute reads as under a minute" "$b" has "$b" "^Lasted under a minute\.$" E
 
+b=$(body "Two hours")
+check "a duration of whole hours reads as hours" "$b" has "$b" "^Lasted 2h\\.$" E
+
+t=$(title "Production check")
+check "a production alert is labelled Production" "$t" [ "$t" = "🔴 Production · Production check" ]
+
+t=$(title "Envless check")
+check "an alert without an environment has a heading without one" "$t" [ "$t" = "🟡 Envless check" ]
+b=$(body "Envless check")
+check "an alert without an environment links no environment" "$b" lacks "$b" "var-env"
+check "an alert without an environment still links the dashboard" "$b" has "$b" "https://grafana.terka.my.id/d/terka/terka" F
+
+t=$(title "Severity mix")
+check "a group with a critical alert is marked critical" "$t" [ "$t" = "🔴 Staging · Severity mix" ]
+
+t=$(title "Mixed group")
+check "a partly resolved group is headed by its firing alert" "$t" [ "$t" = "🔴 Staging · Mixed group" ]
 b=$(body "Mixed group")
 check "a mixed group shows the firing alert" "$b" has "$b" "Still failing."
-check "a mixed group shows the resolved alert" "$b" has "$b" "Mixed group: Lasted 10m." F
+check "a mixed group shows the resolved alert" "$b" has "$b" "Mixed group, old half: Lasted 10m." F
 
 if [ "$failures" -gt 0 ]; then
 	echo "$failures failed"

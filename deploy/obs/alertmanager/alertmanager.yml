@@ -13,13 +13,16 @@ receivers:
   - name: discord-staging
     discord_configs:
       - webhook_url_file: /etc/alertmanager/secrets/discord-staging
+        # A firing group is named after a firing alert and marked critical if any of them is.
         title: &title >-
-          {{ if eq .Status "resolved" }}🟢 Resolved · {{ else if eq .CommonLabels.severity "critical" }}🔴 {{ else }}🟡 {{ end -}}
-          {{ if eq .CommonLabels.env "host" }}VPS{{ else }}{{ title .CommonLabels.env }}{{ end }} · {{ (index .Alerts 0).Annotations.title }}
+          {{ $lead := index .Alerts 0 }}{{ if .Alerts.Firing }}{{ $lead = index .Alerts.Firing 0 }}{{ end -}}
+          {{ $critical := false }}{{ range .Alerts.Firing }}{{ if eq .Labels.severity "critical" }}{{ $critical = true }}{{ end }}{{ end -}}
+          {{ if eq .Status "resolved" }}🟢 Resolved · {{ else if $critical }}🔴 {{ else }}🟡 {{ end -}}
+          {{ with .CommonLabels.env }}{{ if eq . "host" }}VPS{{ else }}{{ title . }}{{ end }} · {{ end }}{{ $lead.Annotations.title }}
         message: &message |-
           {{ range .Alerts.Firing -}}
           {{ .Annotations.summary }}
-          Since {{ .StartsAt | tz "Asia/Jakarta" | date "15:04" }} WIB · https://grafana.terka.my.id/d/terka/terka{{ if ne .Labels.env "host" }}?var-env={{ .Labels.env }}{{ end }}
+          Since {{ .StartsAt | tz "Asia/Jakarta" | date "15:04" }} WIB · https://grafana.terka.my.id/d/terka/terka{{ if and .Labels.env (ne .Labels.env "host") }}?var-env={{ .Labels.env }}{{ end }}
           {{ end -}}
           {{ range .Alerts.Resolved -}}
           {{ if gt (len $.Alerts) 1 }}{{ .Annotations.title }}: {{ end -}}
