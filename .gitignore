@@ -5,6 +5,7 @@ server/tmp/
 deploy/ansible/inventory.ini
 /spikes/
 /.superpowers/
+.claude/
 .DS_Store
 .idea/
 /.edge-test.*/
