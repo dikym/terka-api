@@ -130,20 +130,20 @@ has() { grep -q"${3:-}" -- "$2" <<<"$1"; }
 lacks() { ! grep -q -- "$2" <<<"$1"; }
 
 t=$(title "API is not reporting")
-check "a firing critical alert has a plain heading" "$t" [ "$t" = "🔴 Staging · API is not reporting" ]
+check "a firing critical alert has a plain heading" "$t" [ "$t" = "Critical · Staging · API is not reporting" ]
 b=$(body "API is not reporting")
 check "a firing alert gives its value" "$b" has "$b" "No metrics from the API for 5 minutes."
 check "a firing alert says when it started, in WIB" "$b" has "$b" "Since $api_wib WIB" F
 check "a firing alert links the dashboard for its environment" "$b" has "$b" "https://grafana.terka.my.id/d/terka/terka?var-env=staging" F
 
 t=$(title "Disk almost full")
-check "a host alert is labelled VPS" "$t" [ "$t" = "🟡 VPS · Disk almost full" ]
+check "a host alert is labelled VPS" "$t" [ "$t" = "Warning · VPS · Disk almost full" ]
 b=$(body "Disk almost full")
 check "a host alert links the dashboard" "$b" has "$b" "https://grafana.terka.my.id/d/terka/terka" F
 check "a host alert links no environment" "$b" lacks "$b" "var-env"
 
 t=$(title "Memory low")
-check "a resolved alert says so in its heading" "$t" [ "$t" = "🟢 Resolved · Staging · Memory low" ]
+check "a resolved alert says so in its heading" "$t" [ "$t" = "Resolved · Staging · Memory low" ]
 b=$(body "Memory low")
 check "a resolved alert says how long it lasted" "$b" has "$b" "^Lasted 3h40m\.$" E
 check "a resolved alert leaves out the firing text" "$b" lacks "$b" "memory available"
@@ -155,19 +155,19 @@ b=$(body "Two hours")
 check "a duration of whole hours reads as hours" "$b" has "$b" "^Lasted 2h\\.$" E
 
 t=$(title "Production check")
-check "a production alert is labelled Production" "$t" [ "$t" = "🔴 Production · Production check" ]
+check "a production alert is labelled Production" "$t" [ "$t" = "Critical · Production · Production check" ]
 
 t=$(title "Envless check")
-check "an alert without an environment has a heading without one" "$t" [ "$t" = "🟡 Envless check" ]
+check "an alert without an environment has a heading without one" "$t" [ "$t" = "Warning · Envless check" ]
 b=$(body "Envless check")
 check "an alert without an environment links no environment" "$b" lacks "$b" "var-env"
 check "an alert without an environment still links the dashboard" "$b" has "$b" "https://grafana.terka.my.id/d/terka/terka" F
 
 t=$(title "Severity mix")
-check "a group with a critical alert is marked critical" "$t" [ "$t" = "🔴 Staging · Severity mix" ]
+check "a group with a critical alert is marked critical" "$t" [ "$t" = "Critical · Staging · Severity mix" ]
 
 t=$(title "Mixed group")
-check "a partly resolved group is headed by its firing alert" "$t" [ "$t" = "🔴 Staging · Mixed group" ]
+check "a partly resolved group is headed by its firing alert" "$t" [ "$t" = "Critical · Staging · Mixed group" ]
 b=$(body "Mixed group")
 check "a mixed group shows the firing alert" "$b" has "$b" "Still failing."
 check "a mixed group shows the resolved alert" "$b" has "$b" "Mixed group, old half: Lasted 10m." F

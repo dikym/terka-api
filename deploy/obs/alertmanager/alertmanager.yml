@@ -17,7 +17,7 @@ receivers:
         title: &title >-
           {{ $lead := index .Alerts 0 }}{{ if .Alerts.Firing }}{{ $lead = index .Alerts.Firing 0 }}{{ end -}}
           {{ $critical := false }}{{ range .Alerts.Firing }}{{ if eq .Labels.severity "critical" }}{{ $critical = true }}{{ end }}{{ end -}}
-          {{ if eq .Status "resolved" }}🟢 Resolved · {{ else if $critical }}🔴 {{ else }}🟡 {{ end -}}
+          {{ if eq .Status "resolved" }}Resolved · {{ else if $critical }}Critical · {{ else }}Warning · {{ end -}}
           {{ with .CommonLabels.env }}{{ if eq . "host" }}VPS{{ else }}{{ title . }}{{ end }} · {{ end }}{{ $lead.Annotations.title }}
         message: &message |-
           {{ range .Alerts.Firing -}}
