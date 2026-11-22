@@ -88,9 +88,9 @@ services:
     # GF_SECURITY_ADMIN_PASSWORD and the Cloudflare Access JWT settings; written by Ansible.
     env_file: grafana.env
     read_only: true
-    mem_limit: 384m
+    mem_limit: 512m
     environment:
-      GOMEMLIMIT: 326MiB
+      GOMEMLIMIT: 435MiB
     volumes:
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

@@ -1,7 +1,7 @@
 # Uji Risiko: Memori Tumpukan Observability
 
 **Menjawab:** risiko 3 di bagian 11 spec.
-**Status:** pengukuran awal di VM lokal selesai; pengukuran di VPS belum dilakukan.
+**Status:** pengukuran di VM lokal dan di VPS selesai (2026-11-22); Tempo tetap mati.
 
 ## Yang diuji
 
@@ -39,9 +39,9 @@ Menurut aturan keputusan rencana (jumlah kelima layanan ≤ 700 MB, tanpa pembun
 
 ## Pengukuran di VPS
 
-Belum dilakukan. Sekarang memakai **tumpukan sungguhan** (`deploy/compose.obs.yaml`, dipasang menurut
+Dilakukan 2026-11-22 (hasil di bawah tabel). Memakai **tumpukan sungguhan** (`deploy/compose.obs.yaml`, dipasang menurut
 bagian "Observability" di `docs/runbooks/deploy.md`), bukan `spikes/obs-memory/`. Batas memori di compose:
-Grafana 384 MiB (`GOMEMLIMIT` 326 MiB), Alloy 256 MiB (`GOMEMLIMIT` 218 MiB), Prometheus dan Loki 192 MiB,
+Grafana 512 MiB (`GOMEMLIMIT` 435 MiB), Alloy 256 MiB (`GOMEMLIMIT` 218 MiB), Prometheus dan Loki 192 MiB,
 Alertmanager 64 MiB, Tempo 320 MiB.
 
 Start pertama di VPS (2026-11-22) dengan batas lama: Grafana 320 MiB tidak pernah membuka port 3000
@@ -62,9 +62,17 @@ dan restart per container.
 
 | Menit | Grafana | Alloy | Loki | Prometheus | Alertmanager | `available` | OOM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0 | | | | | | | |
-| 30 | | | | | | | |
-| 120 | | | | | | | |
+| 0 | tidak dicatat | | | | | | |
+| 30 | tidak dicatat | | | | | | |
+| lebih dari 120 | 363 / 384 MiB (naik-turun 105–384) | 141 / 256 MiB | 148 / 192 MiB | 100 / 192 MiB | 17 / 64 MiB | 1099 MB | 0 |
+
+Hasil setelah lebih dari dua jam, dengan Grafana di batas 384 MiB: tidak ada OOM kill, tidak ada
+restart, `available` 1099 MB, swap terpakai 514 MB. Kriteria selesai terpenuhi. Grafana tidak stabil:
+pemakaiannya naik-turun 105–384 MiB setiap sekitar satu menit, menyentuh batas (99,97%), dan membaca
+disk sekitar 1 GB per menit (total 181 GB). Itu thrashing di batas cgroup; `GOMEMLIMIT` hanya batas
+lunak. Keputusan: Grafana dinaikkan ke 512 MiB (`GOMEMLIMIT` 435 MiB). Perkiraan setelah produksi ikut
+jalan: sekitar 1,1–1,15 GB terpakai, `available` sekitar 800–900 MB. Tempo tetap mati sampai ada
+pengukuran dengan produksi atau VPS 4 GB.
 
 ### Aturan keputusan
 
