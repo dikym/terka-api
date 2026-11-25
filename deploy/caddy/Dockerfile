@@ -14,7 +14,11 @@ RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.11.9 --output /out/caddy \
 	--replace golang.org/x/net=golang.org/x/net@v0.62.0 \
 	--replace github.com/klauspost/compress=github.com/klauspost/compress@v1.20.4 \
-	--replace golang.org/x/crypto=golang.org/x/crypto@v0.59.0
+	--replace golang.org/x/crypto=golang.org/x/crypto@v0.59.0 \
+	--replace go.opentelemetry.io/otel=go.opentelemetry.io/otel@v1.47.0 \
+	--replace go.opentelemetry.io/otel/trace=go.opentelemetry.io/otel/trace@v1.47.0 \
+	--replace go.opentelemetry.io/otel/sdk=go.opentelemetry.io/otel/sdk@v1.47.0 \
+	--replace go.opentelemetry.io/otel/sdk/log=go.opentelemetry.io/otel/sdk/log@v1.47.0
 RUN go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary /out/caddy
 
 FROM caddy:2.11.9-alpine

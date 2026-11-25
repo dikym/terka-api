@@ -5,7 +5,7 @@ services:
   # Keeps the web container's contract (an HTML home page, HTML 404s), not its content.
   web:
     build: !reset null
-    image: ghcr.io/dikym/terka-caddy:2.11.9-p1
+    image: ghcr.io/dikym/terka-caddy:2.11.9-p2
     volumes:
       - ./local/web-stand-in.Caddyfile:/etc/caddy/Caddyfile:ro
     healthcheck:
@@ -16,7 +16,7 @@ services:
 
   # Answers Turnstile's siteverify the way Cloudflare answers the always-pass test secret.
   turnstile:
-    image: ghcr.io/dikym/terka-caddy:2.11.9-p1
+    image: ghcr.io/dikym/terka-caddy:2.11.9-p2
     command:
       - caddy
       - respond

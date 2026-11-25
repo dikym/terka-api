@@ -32,7 +32,7 @@ services:
 
   caddy:
     # The shared base from deploy/caddy; bump with deploy/caddy/VERSION.
-    image: ghcr.io/dikym/terka-caddy:2.11.9-p1
+    image: ghcr.io/dikym/terka-caddy:2.11.9-p2
     restart: unless-stopped
     ports:
       # IPv4 only: Cloudflare reaches the origin through the A record, and the console firewall

@@ -87,7 +87,7 @@ services:
 
   caddy:
     # `make stack` builds this tag from deploy/caddy first, so the web image can start from it too.
-    image: ghcr.io/dikym/terka-caddy:2.11.9-p1
+    image: ghcr.io/dikym/terka-caddy:2.11.9-p2
     ports:
       - "127.0.0.1:${TERKA_STACK_PORT:-8800}:8800"
     volumes:
